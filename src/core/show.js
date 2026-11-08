@@ -16,11 +16,13 @@ export function createShow({ world, audio }) {
   let mode = 'daily'; // daily | preshow | show
   let house = 1;
   let stage = 1;
-  let curtainOpen = true;
+  let curtainOpen = false; // 进场默认闭合
   const timers = [];
 
   const apply = () => world.auditorium.setShow({ house, stage });
   apply();
+  // 与幕布初始值对齐，避免首帧就位前出现开着的台口
+  world.auditorium.snapCurtain(false);
 
   function clearTimers() {
     while (timers.length) clearTimeout(timers.pop());
@@ -40,16 +42,14 @@ export function createShow({ world, audio }) {
     });
   }
 
-  // 开场前的三遍铃：主光在铃声里慢慢收，脚光与台口渐起；铃落开幕
+  // 开场前的三遍铃：幕布保持闭合，主光在铃声里慢慢收，脚光与台口渐起；铃落开幕
   function startPreshow() {
     if (mode !== 'daily') return false;
     mode = 'preshow';
     const k = speed();
     clearTimers();
 
-    setCurtain(false);
-    audio?.fabric(2.4 * k);
-
+    // 不在这里强制合幕：初始就是闭合的；若观众自己拉开过，也不做“先合一下再开”的回跳
     fadeLevels({ house, stage }, { house: 0.34, stage: 1.12 }, 7.6 * k);
 
     timers.push(setTimeout(() => audio?.bell(1), 30));
@@ -63,12 +63,16 @@ export function createShow({ world, audio }) {
     return true;
   }
 
-  // 退出演出：灯回到日常，幕布保持当前状态
+  // 退出演出：灯回到日常，幕布合上
   function endShow() {
     if (mode === 'daily') return false;
     mode = 'daily';
     clearTimers();
     fadeLevels({ house, stage }, { house: 1, stage: 1 }, 1.5 * speed());
+    if (curtainOpen) {
+      setCurtain(false);
+      audio?.fabric(4.2 * speed());
+    }
     return true;
   }
 

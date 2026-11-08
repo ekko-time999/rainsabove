@@ -1221,10 +1221,11 @@ export function buildAuditorium(scene, mats, quality) {
     reduceQuery.addEventListener('change', (e) => { reduced = e.matches; });
   }
 
-  let curtainTarget = 1;
-  let slidePos = 1;
+  // 初始闭合：进场时幕布是落下的，等三遍铃结束再拉开
+  let curtainTarget = 0;
+  let slidePos = 0;
   let slideVel = 0;
-  let gatherPos = 1;
+  let gatherPos = 0;
   let gatherVel = 0;
 
   function setCurtain(open) {
@@ -1250,6 +1251,9 @@ export function buildAuditorium(scene, mats, quality) {
     curtainL.rotation.z = tilt;
     curtainR.rotation.z = -tilt;
   }
+
+  // 首帧之前就落到闭合位置，避免开场闪一下开着的台口
+  applyCurtain();
 
   function stepCurtain(dt) {
     if (reduced) {
