@@ -8,7 +8,9 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "preview:file": "vite build && node scripts/inline-preview.mjs"
+    "preview:file": "vite build && node scripts/inline-preview.mjs",
+    "new": "node scripts/new-content.mjs",
+    "links": "node scripts/new-content.mjs --links"
   },
   "dependencies": {
     "three": "^0.170.0"
