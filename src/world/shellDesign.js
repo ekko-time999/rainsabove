@@ -776,8 +776,10 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
       goldDeep.add(0.72, 0.2, 0.6, sign * 2.56, 0.2, 1.0);
       goldDeep.add(0.72, 0.16, 0.6, sign * 2.56, 5.46, 1.0);
     }
-    // 拱内暖光
-    glowBar(4.1, 3.9, 0.08, 0, 4.2, 0.18, wallGlowMid, 0.34);
+    // 拱内暖光：只做门套两侧窄光带，门洞中线保持通透
+    for (const sign of [-1, 1]) {
+      glowBar(0.2, 3.9, 0.08, sign * 2.02, 4.2, 0.18, wallGlowMid, 0.34);
+    }
     // 基座：门洞范围断开，门槛处不再横一道 0.86m 石带
     // 后侧带同样在门厅拱洞（±2.2m）处让开，避免透过拱门看到整条石带
     plinth(F.z0, F.z1, F.half, 0.86, M.stoneDark, portalHalf + 0.95, [-2.2, 2.2]);
@@ -882,8 +884,10 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
     prism(6.2, 1.4, 0.78, 0, 11.45, 0.9, M.stoneLight);
     prism(5.2, 1.1, 0.68, 0, 11.45, 0.92, M.stone);
     goldDeep.add(6.4, 0.1, 0.16, 0, 11.46, 1.28);
-    // 门洞暖光衬底放在门扇之后，只从门缝与两侧透出
-    glowBar(4.6, 4.1, 0.08, 0, 3.3, 0.18, wallGlowMid, 0.32);
+    // 门洞暖光衬底只保留门套两侧两条窄光带：整幅衬板会挡住门洞中线视线
+    for (const sign of [-1, 1]) {
+      glowBar(0.22, 4.1, 0.08, sign * 2.18, 3.3, 0.18, wallGlowMid, 0.32);
+    }
 
     // 基座：门洞范围断开，门槛处不再横一道 0.86m 石带
     // 后侧带同样在门厅拱洞（±2.2m）处让开，避免透过拱门看到整条石带
@@ -960,8 +964,10 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
       box(0.18, 4.9, 0.7, sign * (portalHalf + 0.3), 2.45, 1.6, M.stoneLight);
     }
     box(portalHalf * 2 + 0.5, 0.24, 0.7, 0, 4.98, 1.62, M.goldDeep);
-    // 暖光衬在门扇之后（不能挡在门扇前面，否则整片门洞会过曝）
-    glowBar(portalHalf * 2 - 0.6, 4.2, 0.08, 0, 2.4, 0.18, wallGlowMid, 0.3);
+    // 暖光衬在门扇之后：只保留两侧窄光带，避免整幅挡住门洞
+    for (const sign of [-1, 1]) {
+      glowBar(0.22, 4.2, 0.08, sign * 2.2, 2.4, 0.18, wallGlowMid, 0.3);
+    }
     for (const sign of [-1, 1]) {
       for (const x of [5.6, 8.4]) {
         const px = sign * x;
