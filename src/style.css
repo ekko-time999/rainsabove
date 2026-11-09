@@ -590,72 +590,70 @@ body[data-phase="explore"] .hud {
   opacity: 0.7;
   transform: none;
 }
-.next-stop {
+/* 方位入口：按相机水平朝向把可达场景分到前/左/右/后，同一方位并列多个 */
+.dir-nav {
   position: absolute;
   left: 50%;
   bottom: clamp(104px, 15vh, 158px);
   transform: translate(-50%) translateY(10px);
+  width: max-content;
+  max-width: min(700px, 88vw);
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 17px 11px 20px;
-  border: 1px solid rgba(205, 174, 118, 0.26);
-  background: #09060580;
-  color: var(--paper);
-  border-radius: 1px;
-  cursor: pointer;
-  pointer-events: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
   opacity: 0;
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  pointer-events: none;
   transition:
     opacity 0.7s var(--ease),
-    transform 0.7s var(--ease),
-    border-color 0.5s var(--ease),
-    background 0.5s var(--ease);
+    transform 0.7s var(--ease);
 }
-.next-stop.is-on {
+.dir-nav.is-on {
   opacity: 1;
   transform: translate(-50%) translateY(0);
   pointer-events: auto;
 }
-.next-kicker {
-  font-family: var(--font-display);
-  font-size: 9px;
-  letter-spacing: 0.3em;
-  color: var(--gold-dim);
+.dir-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(205, 174, 118, 0.24);
+  background: #09060580;
+  color: var(--paper);
+  border-radius: 1px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition:
+    border-color 0.4s var(--ease),
+    background 0.4s var(--ease),
+    transform 0.2s var(--ease);
 }
-.next-label {
-  font-family: var(--font-display);
-  font-size: 13px;
-  letter-spacing: 0.26em;
-  color: var(--gold-bright);
-}
-.next-stop svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: var(--gold);
-  stroke-width: 1.1;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.5s var(--ease);
-}
-.next-stop:hover {
+.dir-btn:hover {
   border-color: #e6c98bb3;
   background: #cdae761a;
-  transform: translate(-50%) scale(1.02);
 }
-.next-stop:hover svg {
-  transform: translate(4px);
+.dir-btn:active {
+  transform: scale(0.97);
 }
-.next-stop:active {
-  transform: translate(-50%) scale(0.97);
-  transition-duration: 0.2s;
-}
-.next-stop:focus-visible {
+.dir-btn:focus-visible {
   outline: 1px solid var(--gold);
-  outline-offset: 5px;
+  outline-offset: 4px;
+}
+.dir-where {
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--gold-dim);
+}
+.dir-name {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: var(--gold-bright);
 }
 .caption {
   position: absolute;
@@ -709,16 +707,19 @@ body[data-phase="explore"] .dpad {
   .caption {
     bottom: clamp(178px, 24vh, 210px);
   }
-  .next-stop {
-    bottom: clamp(238px, 28vh, 268px);
-    padding: 10px 14px 10px 16px;
-    gap: 9px;
+  .dir-nav {
+    bottom: clamp(224px, 27vh, 254px);
+    max-width: 92vw;
   }
-  .next-kicker {
-    display: none;
+  .dir-btn {
+    padding: 6px 10px;
+    gap: 5px;
   }
-  .next-label {
-    font-size: 12px;
+  .dir-where {
+    font-size: 8.5px;
+  }
+  .dir-name {
+    font-size: 11px;
   }
 }
 .pad {
@@ -839,7 +840,7 @@ body[data-phase="explore"] .dpad {
 .enter-stop {
   position: absolute;
   left: 50%;
-  bottom: clamp(166px, 23vh, 224px);
+  bottom: clamp(212px, 30vh, 280px);
   transform: translate(-50%) translateY(10px);
   display: flex;
   align-items: center;
@@ -1048,7 +1049,7 @@ body[data-overlay="open"] #scene canvas {
 }
 @media (hover: none), (pointer: coarse) {
   .enter-stop {
-    bottom: clamp(306px, 36vh, 350px);
+    bottom: clamp(318px, 38vh, 364px);
     padding: 10px 15px 10px 12px;
   }
   .enter-stop-kicker {
@@ -1668,7 +1669,7 @@ body[data-orb="open"] .brand,
 body[data-orb="open"] .act,
 body[data-orb="open"] .dpad,
 body[data-orb="open"] .caption,
-body[data-orb="open"] .next-stop,
+body[data-orb="open"] .dir-nav,
 body[data-orb="open"] .enter-stop {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -2010,24 +2011,29 @@ body[data-orb="open"] .stage-tools {
   .pad-right {
     grid-area: 2 / 3;
   }
-  .next-stop {
+  .dir-nav {
     left: 50%;
     right: auto;
-    bottom: calc(var(--dock-b) + 88px);
-    padding: 8px 12px;
-    gap: 8px;
+    bottom: calc(var(--dock-b) + 84px);
+    max-width: 92vw;
+    gap: 5px;
   }
-  .next-kicker {
-    display: none;
+  .dir-btn {
+    padding: 5px 8px;
+    gap: 4px;
   }
-  .next-label {
-    font-size: 11px;
-    letter-spacing: 0.2em;
+  .dir-where {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+  .dir-name {
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
   }
   .enter-stop {
     left: 50%;
     right: auto;
-    bottom: calc(var(--dock-b) + 134px);
+    bottom: calc(var(--dock-b) + 184px);
     padding: 8px 12px;
   }
   .enter-stop-key,
@@ -2037,7 +2043,7 @@ body[data-orb="open"] .stage-tools {
   .caption {
     left: 50%;
     right: auto;
-    bottom: calc(var(--dock-b) + 180px);
+    bottom: calc(var(--dock-b) + 238px);
     max-width: 86vw;
     font-size: 11px;
     letter-spacing: 0.2em;
@@ -2047,7 +2053,7 @@ body[data-orb="open"] .stage-tools {
   .hints {
     left: 12px;
     right: 12px;
-    bottom: calc(var(--dock-b) + 224px);
+    bottom: calc(var(--dock-b) + 276px);
     max-width: none;
     justify-content: flex-start;
   }

@@ -13,9 +13,7 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
   const stopLabel = document.querySelector('.stop-text b');
   const stopEn = document.querySelector('.stop-text em');
   const railItems = [...document.querySelectorAll('.rail-item')];
-  const nextBtn = document.getElementById('next-stop');
-  const nextLabel = document.getElementById('next-label');
-  const nextKicker = document.querySelector('.next-kicker');
+  const dirNav = document.getElementById('dir-nav');
   const enterStop = document.getElementById('enter-stop');
   const enterLabel = document.getElementById('enter-stop-label');
   const programmeBtn = document.getElementById('programme-btn');
@@ -25,10 +23,106 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
   let captionTimer = 0;
   let moveHandler = null;
   let activityShown = false;
-  let nextId = null;
   let currentZone = null;
   let enterId = null;
   const swapTimers = new WeakMap();
+
+  /* ---------- 方位化出口 ----------
+     四个相对方位：前 0、左 +90°、右 -90°、后 180°。
+     分格边界本来在 ±45°/±135°，换格要再多跨 22.5° 才生效，
+     站在分界线上小幅摆头不会来回跳。 */
+  const DIRS = [
+    { key: 'front', label: '前方', center: 0 },
+    { key: 'left', label: '左侧', center: Math.PI / 2 },
+    { key: 'right', label: '右侧', center: -Math.PI / 2 },
+    { key: 'back', label: '后方', center: Math.PI }
+  ];
+  const DIR_HALF = Math.PI / 4;
+  const DIR_HYST = Math.PI / 8;
+  const dirBuckets = new Map();
+  let dirSignature = '';
+  let dirVisible = false;
+
+  function wrapAngle(a) {
+    return Math.atan2(Math.sin(a), Math.cos(a));
+  }
+
+  function bucketFor(rel, prev) {
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < DIRS.length; i++) {
+      const d = Math.abs(wrapAngle(rel - DIRS[i].center));
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    if (prev !== undefined) {
+      const keep = Math.abs(wrapAngle(rel - DIRS[prev].center));
+      if (keep <= DIR_HALF + DIR_HYST) return prev;
+    }
+    return best;
+  }
+
+  function renderExits(groups) {
+    const frag = document.createDocumentFragment();
+    groups.forEach((items, index) => {
+      if (!items.length) return;
+      for (const item of items) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dir-btn';
+        btn.dataset.stop = item.id;
+        btn.setAttribute('aria-label', `${DIRS[index].label} · ${item.label}`);
+        const where = document.createElement('span');
+        where.className = 'dir-where';
+        where.textContent = DIRS[index].label;
+        const name = document.createElement('span');
+        name.className = 'dir-name';
+        name.textContent = item.label;
+        btn.append(where, name);
+        frag.append(btn);
+      }
+    });
+    dirNav.replaceChildren(frag);
+  }
+
+  function setExits(state, visible) {
+    if (!dirNav) return;
+    const items = state?.items || [];
+    if (!items.length) {
+      dirSignature = '';
+      dirBuckets.clear();
+      dirNav.replaceChildren();
+      dirNav.classList.remove('is-on');
+      dirNav.setAttribute('aria-hidden', 'true');
+      dirVisible = false;
+      return;
+    }
+
+    const yaw = state.yaw || 0;
+    const groups = [[], [], [], []];
+    for (const item of items) {
+      const rel = wrapAngle(item.bearing - yaw);
+      const bucket = bucketFor(rel, dirBuckets.get(item.id));
+      dirBuckets.set(item.id, bucket);
+      groups[bucket].push({ ...item, d: Math.abs(wrapAngle(rel - DIRS[bucket].center)) });
+    }
+    // 同一方位内按偏离正中的角度排序，正对镜头的排前面
+    groups.forEach((group) => group.sort((a, b) => a.d - b.d));
+
+    const signature = groups.map((g) => g.map((it) => `${it.id}:${it.label}`).join(',')).join('|');
+    if (signature !== dirSignature) {
+      dirSignature = signature;
+      renderExits(groups);
+    }
+
+    if (visible !== dirVisible) {
+      dirVisible = visible;
+      dirNav.classList.toggle('is-on', visible);
+      dirNav.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    }
+  }
 
   function enter() {
     if (started) return;
@@ -38,9 +132,10 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
 
   enterBtn.addEventListener('click', enter);
 
-  if (nextBtn) {
-    nextBtn.addEventListener('click', () => {
-      if (nextId) onNext?.(nextId);
+  if (dirNav) {
+    dirNav.addEventListener('click', (e) => {
+      const btn = e.target.closest('.dir-btn');
+      if (btn?.dataset.stop) onNext?.(btn.dataset.stop);
     });
   }
 
@@ -110,23 +205,6 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
     });
 
     if (announce) showCaption(`${zone.label} · ${zone.caption}`, 5200);
-  }
-
-  function setNext(target, visible) {
-    if (!nextBtn) return;
-    if (!target) {
-      nextBtn.classList.remove('is-on');
-      nextBtn.setAttribute('aria-hidden', 'true');
-      return;
-    }
-    if (nextId !== target.id) {
-      nextId = target.id;
-      if (nextLabel) nextLabel.textContent = target.label;
-      if (nextKicker && target.kicker) nextKicker.textContent = target.kicker;
-      nextBtn.setAttribute('aria-label', `${target.kicker || '前往'}${target.label}`);
-    }
-    nextBtn.classList.toggle('is-on', visible);
-    nextBtn.setAttribute('aria-hidden', visible ? 'false' : 'true');
   }
 
   function setEnterPrompt(target, visible) {
@@ -202,5 +280,5 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
     }
   });
 
-  return { ready, setPhase, setZone, setNext, setEnterPrompt, showCaption, bindDpad, noteActivity, dimHints, enter };
+  return { ready, setPhase, setZone, setExits, setEnterPrompt, showCaption, bindDpad, noteActivity, dimHints, enter };
 }
