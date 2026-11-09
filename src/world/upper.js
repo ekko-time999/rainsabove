@@ -7,7 +7,7 @@ import { seatGeometry } from './auditorium.js';
    楼座踏面与既有包厢挑台（y=4.03）同高，走廊、楼座与包厢由此连成一条连续的上层动线。 */
 const LEVEL = 4.03;
 const DECK_TOP = LEVEL - 0.012;   // 比既有包厢挑台低一线，避免共面闪烁
-const SLAB = 0.28;   // 做实楼板厚度，板底由檐口线脚收边
+const SLAB = 0.14;   // 楼板厚度：板底 3.89，与一楼走廊平顶（3.88）贴合，洞口净高不再被吃掉
 
 const STAIR_BOTTOM = -7.0;
 const STAIR_TOP = -15.35;
@@ -65,6 +65,7 @@ export function buildUpper(scene, mats, quality) {
   const wood = new BoxBatch(mats.wood, { castShadow: full });
   const marble = new BoxBatch(mats.marble);
   const velvet = new BoxBatch(mats.velvetWall);
+  const soffit = new BoxBatch(mats.plasterDark);
   const glows = [];
   const lights = [];
 
@@ -137,18 +138,18 @@ export function buildUpper(scene, mats, quality) {
     }
   }
 
-  /* ---------- 门厅尽端的二楼平台：把楼梯与中央拱门接起来 ---------- */
-  wood.add(13.5, SLAB, 1.24, 0, LEVEL - SLAB / 2, (GALLERY_FRONT + GALLERY_BACK) / 2);
-  gold.add(13.52, 0.05, 0.06, 0, LEVEL, GALLERY_FRONT + 0.005);
+  /* ---------- 门厅尽端的二楼平台：把楼梯与中央拱门接起来 ----------
+     平台本身是楼梯顶部到拱门的必经通道，必须保留；但它的前沿正好横在
+     门厅拱洞的视线中段，从门厅看过去像一块挡在门洞上的栏板。
+     这里只保留楼板：前沿栏杆与扶手已删；楼板也去掉木色明边与金线，改用
+     与走廊平顶同色的深色收边，从门厅看是洞口上方的阴影，不再是一块被
+     勾亮的横板。 */
+  const landingZ = (GALLERY_FRONT + GALLERY_BACK) / 2;
+  soffit.add(13.5, SLAB, 1.24, 0, LEVEL - SLAB / 2, landingZ);
+  // 上层走廊楼板的前沿（在拱洞上方露出一条木色边）同样包深色收边
+  soffit.add(4.52, SLAB, 0.36, 0, LEVEL - SLAB / 2, -16.52);
   // 板底不再外挑檐口与齿饰：这些东西悬在门厅拱洞的正中，把洞口读成一道过梁。
-  // 楼板本身只保留 0.28m 的净板边，洞口净高即为板底 3.89m。
-
-  // 平台外沿栏杆，只做中段，两端留给楼梯
-  for (let x = -5.02; x <= 5.03; x += 0.42) {
-    gold.add(0.032, 0.76, 0.032, x, LEVEL + 0.4, GALLERY_FRONT);
-  }
-  gold.add(10.2, 0.07, 0.07, 0, LEVEL + 0.82, GALLERY_FRONT);
-  goldDeep.add(10.2, 0.06, 0.06, 0, LEVEL + 0.02, GALLERY_FRONT);
+  // 楼板只保留 0.14m 的板边，洞口净高即为板底 3.89m。
 
   /* ---------- 二楼走廊：叠在既有走廊之上，上下两层同宽 ---------- */
   wood.add(4.52, SLAB, 14.2, 0, LEVEL - SLAB / 2, -23.45);
@@ -217,6 +218,7 @@ export function buildUpper(scene, mats, quality) {
   wood.build(group);
   marble.build(group);
   velvet.build(group);
+  soffit.build(group);
 
   let level = 1;
   function setLevel(v) {

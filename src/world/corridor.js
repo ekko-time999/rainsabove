@@ -13,7 +13,7 @@ const W_LEN = START - WALL_END;
 const W_MID = (START + WALL_END) / 2;
 const HALF = 2.2;
 const CEIL = 6.9;         // 二楼走廊净高 6.9-4.03 ≈ 2.87m
-const LOWER_CEIL = 3.72;  // 一楼走廊天花：压在上层楼板下皮
+const LOWER_CEIL = 3.88;  // 一楼走廊天花：贴住上层楼板下皮（板厚 0.14，板底 3.89）
 const WALL_TOP = 4.03;    // 二楼楼面标高，拱肋从这里起拱
 
 // 门厅尽头延伸出的正式通道：拱肋、壁龛、壁灯、地毯，尽头透出观众席的光
