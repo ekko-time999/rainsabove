@@ -702,7 +702,7 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
   const BX1 = -2.02;       // 走廊墙内侧，进深 0.6m
   const BZ0 = -26.4;
   const BZ1 = -24.8;
-  const BY0 = LEVEL + 2.57;
+  const BY0 = LEVEL + 2.61;   // 机房底板离地 2.61m，门洞处净高不再低于 2.6m
   const BY1 = CEIL - 0.08;
   const boothMat = darkPlaster(mats, 0x17100d);
   const bmz = (BZ0 + BZ1) / 2;

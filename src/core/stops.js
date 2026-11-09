@@ -273,8 +273,10 @@ export const NAV = {
     id: 'gallery',
     label: '楼座',
     en: 'GALLERY',
-    pose: { position: [3.0, 5.67, -32.8], target: [0, 3.2, -49.5] },
-    via: [...U_STAIR, ...U_REAR]
+    // 站位收到尾端平台中线：[3,-32.8] 落在拱墙与包厢隔墙之间的死角，
+    // 回望只剩 1m 外的墙面，右侧还被包厢隔墙切掉一条。
+    pose: { position: [0, 5.67, -31.6], target: [0, 3.2, -49.5] },
+    via: [...U_STAIR, [0, 5.67, -31.2]]
   },
   about: {
     id: 'about',
@@ -332,14 +334,14 @@ const HUB_PT = [0, 5.67, -30.4];
 const SCR_OUT = [[-3.13, 5.67, -25.6], [-2.4, 5.67, -25.6], [-1.4, 5.67, -25.6]];
 const TO_HUB = {
   screening: [...SCR_OUT, [0, 5.67, -26.2], [0, 5.67, -27.4], HUB_PT],
-  gallery: [[2.7, 5.67, -31.9], HUB_PT],
+  gallery: [[0, 5.67, -31.2], HUB_PT],
   box: [...BOX_PROM.slice().reverse(), [2.7, 5.67, -31.9], [1.2, 5.67, -31.2], HUB_PT]
 };
 
 // 从尾端平台前往各上层空间（不含平台点本身）
 const FROM_HUB = {
   screening: [[0, 5.67, -27.4], [0, 5.67, -26.2], [-1.4, 5.67, -25.6], [-2.4, 5.67, -25.6], [-3.13, 5.67, -25.6]],
-  gallery: [[2.7, 5.67, -31.9]],
+  gallery: [[0, 5.67, -31.2]],
   box: [[1.2, 5.67, -31.2], [2.7, 5.67, -31.9], ...BOX_PROM]
 };
 
@@ -784,7 +786,11 @@ const UPPER_WALK = [
   STAIR_R,
   { type: 'rect', id: 'landing', x0: -6.55, x1: 6.55, z0: -16.5, z1: -15.3, y: 4.03, space: 'gallery' },
   { type: 'rect', id: 'corridor', x0: -2.1, x1: 2.1, z0: -30.65, z1: -16.4, y: 4.03, space: 'gallery' },
-  { type: 'rect', id: 'rear-platform', x0: -3.55, x1: 3.55, z0: -32.35, z1: -30.55, y: 4.03, space: 'gallery' },
+  // 尾端平台原来是一块 x±3.55 的矩形，其中两侧各约 0.8m 落在弧墙背后
+  // （z≈-31.4 处墙面只到 x±2.73），人会穿墙站进空腔。
+  // 改成"弧内条带"：z 区间内按弧墙内径收口，再单给一条门洞喉道接走廊。
+  { type: 'apse', id: 'rear-platform', cx: 0, cz: HOUSE.TAIL, r: 4.45, z0: -32.35, z1: -31.15, y: 4.03, space: 'gallery' },
+  { type: 'rect', id: 'rear-door', x0: -1.95, x1: 1.95, z0: -31.2, z1: -30.45, y: 4.03, space: 'gallery' },
   { type: 'ring', id: 'inner-r', cx: 0, cz: HOUSE.TAIL, r0: 2.95, r1: 4.5, a0: 0.12, a1: 1.06, y: 4.03, space: 'gallery' },
   { type: 'ring', id: 'inner-l', cx: 0, cz: HOUSE.TAIL, r0: 2.95, r1: 4.5, a0: -1.06, a1: -0.12, y: 4.03, space: 'gallery' },
   { type: 'ring', id: 'arch-r', cx: 0, cz: HOUSE.TAIL, r0: 4.4, r1: 5.1, a0: 0.98, a1: 1.1, y: 4.03, space: 'gallery' },
@@ -797,8 +803,9 @@ const UPPER_WALK = [
   { type: 'seg', id: 'backcorr-l', ax: -5.365, az: -34.648, bx: -8.731, bz: -46.999, half: 0.78, y: 4.03, space: 'gallery' },
   { type: 'seg', id: 'boxdoor-r', ax: 7.02, az: -40.7, bx: 5.45, bz: -40.95, half: 0.42, y: 4.03, space: 'gallery' },
   { type: 'rect', id: 'box-r', cx: BOX_C[0], cz: BOX_C[1], hx: 0.76, hz: 0.72, yaw: BOX_F.yaw, y: 4.03, space: 'box' },
-  // 左侧包厢与右侧对称，原先只有右侧有后廊门，左侧包厢无法进入
-  { type: 'seg', id: 'boxdoor-l', ax: BOX_C_L[0], az: BOX_C_L[1], bx: -5.45, bz: -40.95, half: 0.42, y: 4.03, space: 'gallery' },
+  // 左侧包厢与右侧对称：端点必须取右侧的镜像，原来两端都落在包厢内，
+  // 门洞点只是一枚 9cm 的孤立线段，左包厢因此永远走不进去。
+  { type: 'seg', id: 'boxdoor-l', ax: -7.02, az: -40.7, bx: -5.45, bz: -40.95, half: 0.42, y: 4.03, space: 'gallery' },
   { type: 'rect', id: 'box-l', cx: BOX_C_L[0], cz: BOX_C_L[1], hx: 0.76, hz: 0.72, yaw: BOX_F_L.yaw, y: 4.03, space: 'box' },
   { type: 'rect', id: 'screen-pass', x0: -2.62, x1: -1.95, z0: -26.3, z1: -24.9, y: 4.03, space: 'screening' },
   { type: 'seg', id: 'screen-door', ax: -2.30, az: -25.6, bx: -2.95, bz: -25.6, half: 0.34, y: 4.03, space: 'screening' },
@@ -830,6 +837,14 @@ function clampRegion(p, x, z) {
   if (p.type === 'rect') {
     const cx = clampN(x, p.x0, p.x1);
     const cz = clampN(z, p.z0, p.z1);
+    return { x: cx, z: cz, d: Math.hypot(x - cx, z - cz), y: regionY(p, cx, cz), space: p.space, id: p.id };
+  }
+  if (p.type === 'apse') {
+    // 弧内条带：z 收进区间后，按该 z 处圆弧内径收口 x
+    const cz = clampN(z, p.z0, p.z1);
+    const dz = cz - p.cz;
+    const w = Math.sqrt(Math.max(0, p.r * p.r - dz * dz));
+    const cx = clampN(x, -w, w);
     return { x: cx, z: cz, d: Math.hypot(x - cx, z - cz), y: regionY(p, cx, cz), space: p.space, id: p.id };
   }
   if (p.type === 'taper') {

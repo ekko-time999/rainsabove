@@ -140,12 +140,8 @@ export function buildUpper(scene, mats, quality) {
   /* ---------- 门厅尽端的二楼平台：把楼梯与中央拱门接起来 ---------- */
   wood.add(13.5, SLAB, 1.24, 0, LEVEL - SLAB / 2, (GALLERY_FRONT + GALLERY_BACK) / 2);
   gold.add(13.52, 0.05, 0.06, 0, LEVEL, GALLERY_FRONT + 0.005);
-  // 挑檐口线脚：板底外挑一圈，把一楼天花收住
-  goldDeep.add(13.62, 0.17, 0.32, 0, LEVEL - 0.30, GALLERY_FRONT - 0.03);
-  gold.add(13.58, 0.035, 0.36, 0, LEVEL - 0.185, GALLERY_FRONT - 0.03);
-  for (let x = -6.2; x <= 6.21; x += 0.9) {
-    wood.add(0.3, 0.16, 0.46, x, LEVEL - 0.46, GALLERY_FRONT - 0.2);
-  }
+  // 板底不再外挑檐口与齿饰：这些东西悬在门厅拱洞的正中，把洞口读成一道过梁。
+  // 楼板本身只保留 0.28m 的净板边，洞口净高即为板底 3.89m。
 
   // 平台外沿栏杆，只做中段，两端留给楼梯
   for (let x = -5.02; x <= 5.03; x += 0.42) {
@@ -174,12 +170,14 @@ export function buildUpper(scene, mats, quality) {
      门厅尽端的中央拱洞就是这一层的入口；在走廊内侧再包一道木门套与过梁，
      让洞口从走廊一侧看是“门”，而不是一块被楼板切开的空档。 */
   const PORTAL_Z = -17.34;
+  // 过梁下皮抬到 6.70（净高 2.67m），与拱肋梁底 2.67m、走廊平顶 2.87m 对齐；
+  // 原来 6.47 只有 2.44m，是二楼环廊最矮的一处，进门就压头顶。
   for (const sign of [-1, 1]) {
-    wood.add(0.18, 2.52, 0.16, sign * 2.14, LEVEL + 1.26, PORTAL_Z);
-    gold.add(0.2, 0.07, 0.2, sign * 2.14, LEVEL + 2.54, PORTAL_Z);
+    wood.add(0.18, 2.67, 0.16, sign * 2.14, LEVEL + 1.335, PORTAL_Z);
+    gold.add(0.2, 0.07, 0.2, sign * 2.14, LEVEL + 2.70, PORTAL_Z);
   }
-  wood.add(4.44, 0.26, 0.18, 0, LEVEL + 2.57, PORTAL_Z);
-  goldDeep.add(4.5, 0.09, 0.24, 0, LEVEL + 2.73, PORTAL_Z);
+  wood.add(4.44, 0.20, 0.18, 0, 6.80, PORTAL_Z);
+  goldDeep.add(4.5, 0.05, 0.24, 0, 6.725, PORTAL_Z);
 
   const runner = new THREE.Mesh(new THREE.PlaneGeometry(2.05, 14.1), mats.carpet);
   runner.rotation.x = -Math.PI / 2;

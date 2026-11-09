@@ -17,10 +17,14 @@ function bentApseWall() {
   shape.lineTo(-arcLen / 2, height);
   shape.closePath();
 
-  const doors = [-4.8, 0, 4.8];
-  const halfW = 1.3;
-  const spring = 4.3;
-  for (const cx of doors) {
+  // 中央拱门是上下两层共用的主门洞：门洞一直升到二楼环廊的吊顶（6.9m），
+  // 二楼楼座才有 >=2.87m 的净高与通透的回望视线。两侧门仍按一层尺度。
+  const doors = [
+    { cx: -4.8, halfW: 1.3, spring: 4.3 },
+    { cx: 4.8, halfW: 1.3, spring: 4.3 },
+    { cx: 0, halfW: 2.0, spring: 4.9 }
+  ];
+  for (const { cx, halfW, spring } of doors) {
     const hole = new THREE.Path();
     hole.moveTo(cx - halfW, 0);
     hole.lineTo(cx - halfW, spring);
@@ -46,7 +50,7 @@ function bentApseWall() {
     pos.setXYZ(i, r * Math.sin(a), y, HOUSE.TAIL + r * Math.cos(a));
   }
   geo.computeVertexNormals();
-  return { geo, doors, halfW, spring };
+  return { geo, doors };
 }
 
 function bendFlatGeometry(geo) {
@@ -175,14 +179,14 @@ export function buildHorseshoe({
   group.add(apseMesh);
 
   const ringGeos = [];
-  for (const cx of apse.doors) {
+  for (const { cx, halfW, spring } of apse.doors) {
     const band = new THREE.Shape();
-    const ro = apse.halfW + 0.19;
-    const ri = apse.halfW + 0.015;
+    const ro = halfW + 0.19;
+    const ri = halfW + 0.015;
     band.moveTo(cx - ro, 0);
-    band.absarc(cx, apse.spring, ro, Math.PI, 0, true);
+    band.absarc(cx, spring, ro, Math.PI, 0, true);
     band.lineTo(cx + ri, 0);
-    band.absarc(cx, apse.spring, ri, 0, Math.PI, false);
+    band.absarc(cx, spring, ri, 0, Math.PI, false);
     band.closePath();
     const bandGeo = new THREE.ExtrudeGeometry(band, {
       depth: 0.1,
@@ -356,7 +360,7 @@ export function buildHorseshoe({
           goldDeep.add(0.09, 0.04, boxW, rx, y + 0.05, rz, f.yaw);
         }
 
-        // 顶棚：由上一层楼板充当，层间净高 2.22/2.23m；顶层敞开
+        // 顶棚：由上一层楼板充当，层间净高 2.22/2.63m；顶层敞开
 
         // 隔墙壁灯：光晕统一收进一个 Points，只留一盏小铜座
         const [gx, gz] = place(f, depth - 0.16, boxW / 2 - 0.12);
@@ -384,7 +388,8 @@ export function buildHorseshoe({
 
   /* ---------- 包厢后廊：三层都有净宽 1.7m 的墙外走道 ---------- */
   const corrMidZ = HOUSE.BOX_Z0 + (HOUSE.BOX_COUNT - 1) * HOUSE.BOX_STEP / 2;
-  const corrLen = HOUSE.BOX_COUNT * HOUSE.BOX_STEP + 0.8;
+  // 走道地面前后各多铺 0.1m：前端接上转角，避免与弧廊地板留缝
+  const corrLen = HOUSE.BOX_COUNT * HOUSE.BOX_STEP + 1.0;
   for (let tier = 0; tier < 3; tier++) {
     const y = HOUSE.TIER_Y[tier];
     for (const sign of [-1, 1]) {
@@ -406,7 +411,8 @@ export function buildHorseshoe({
 
   /* ---------- 二楼环廊：尾端平台 + 两侧弧廊，再接直段挑台 ---------- */
   const PROM_TOP = HOUSE.LEVEL + 0.002;
-  wood.add(7.4, 0.28, 1.7, 0, PROM_TOP - 0.14, -31.42);
+  // 平台地面向走廊一侧多铺 2cm，压在上层走廊楼板边上，接缝不再透光
+  wood.add(7.4, 0.28, 1.74, 0, PROM_TOP - 0.14, -31.40);
   gold.add(7.4, 0.026, 0.05, 0, PROM_TOP, -30.62);
 
   const innerR = 2.85;

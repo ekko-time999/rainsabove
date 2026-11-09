@@ -65,16 +65,16 @@ export function buildCorridor(scene, mats) {
         seg.receiveShadow = true;
         group.add(seg);
       }
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL - 6.2, SCR_DOOR_HALF * 2), mats.plaster);
-      head.position.set(sign * (HALF + 0.15), (6.2 + CEIL) / 2, SCR_DOOR_Z);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL - 6.75, SCR_DOOR_HALF * 2), mats.plaster);
+      head.position.set(sign * (HALF + 0.15), (6.75 + CEIL) / 2, SCR_DOOR_Z);
       head.receiveShadow = true;
       group.add(head);
 
-      wood.add(0.16, 2.22, 0.14, sign * HALF, 5.14, SCR_DOOR_Z - SCR_DOOR_HALF - 0.05);
-      wood.add(0.16, 2.22, 0.14, sign * HALF, 5.14, SCR_DOOR_Z + SCR_DOOR_HALF + 0.05);
-      wood.add(0.16, 0.18, 1.56, sign * HALF, 6.24, SCR_DOOR_Z);
-      goldDeep.add(0.06, 2.1, 0.06, sign * (HALF - 0.06), 5.1, SCR_DOOR_Z - SCR_DOOR_HALF);
-      goldDeep.add(0.06, 2.1, 0.06, sign * (HALF - 0.06), 5.1, SCR_DOOR_Z + SCR_DOOR_HALF);
+      wood.add(0.16, 2.72, 0.14, sign * HALF, 5.39, SCR_DOOR_Z - SCR_DOOR_HALF - 0.05);
+      wood.add(0.16, 2.72, 0.14, sign * HALF, 5.39, SCR_DOOR_Z + SCR_DOOR_HALF + 0.05);
+      wood.add(0.16, 0.18, 1.56, sign * HALF, 6.79, SCR_DOOR_Z);
+      goldDeep.add(0.06, 2.62, 0.06, sign * (HALF - 0.06), 5.34, SCR_DOOR_Z - SCR_DOOR_HALF);
+      goldDeep.add(0.06, 2.62, 0.06, sign * (HALF - 0.06), 5.34, SCR_DOOR_Z + SCR_DOOR_HALF);
     } else {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL, W_LEN), mats.plaster);
       wall.position.set(sign * (HALF + 0.15), CEIL / 2, W_MID);
@@ -99,8 +99,9 @@ export function buildCorridor(scene, mats) {
     goldDeep.add(0.26, 0.14, W_LEN, sign * (HALF - 0.05), LOWER_CEIL - 0.07, W_MID);
     gold.add(0.30, 0.045, W_LEN, sign * (HALF - 0.04), LOWER_CEIL - 0.15, W_MID);
   }
-  // 横向次梁：与上层拱肋同一节奏，让平顶不至于空成一块板
-  for (const z of [-17.2, -19.6, -22.0, -24.4, -26.8]) {
+  // 横向次梁：与上层拱肋同一节奏，让平顶不至于空成一块板。
+  // 第一道梁原在 z=-17.2，正落在门厅拱洞的墙体厚度里、悬在洞口正中，已删除。
+  for (const z of [-19.6, -22.0, -24.4, -26.8]) {
     gold.add(HALF * 2, 0.14, 0.2, 0, LOWER_CEIL - 0.07, z);
     goldDeep.add(HALF * 2, 0.05, 0.26, 0, LOWER_CEIL - 0.15, z);
   }
@@ -113,14 +114,16 @@ export function buildCorridor(scene, mats) {
   ceiling.position.set(0, CEIL, W_MID);
   group.add(ceiling);
 
-  // 半圆拱肋：把通道读成筒形拱
+  // 半圆拱肋：把通道读成筒形拱。竖向拉高 1.26 倍，拱顶下皮由 2.11m 抬到 2.66m
+  const ribRise = HALF * 1.26;
   const ribGeo = new THREE.TorusGeometry(HALF, 0.085, 6, 30, Math.PI);
   const ribZ = [-17.2, -19.6, -22.0, -24.4, -26.8];
   for (const z of ribZ) {
     const rib = new THREE.Mesh(ribGeo, mats.goldDeep);
     rib.position.set(0, WALL_TOP, z);
+    rib.scale.set(1, 1.26, 1);
     group.add(rib);
-    gold.add(0.12, 0.1, 0.16, 0, WALL_TOP + HALF, z);
+    gold.add(0.12, 0.1, 0.16, 0, WALL_TOP + ribRise, z);
   }
 
   /* ---------- 两侧拱形壁龛 ---------- */
