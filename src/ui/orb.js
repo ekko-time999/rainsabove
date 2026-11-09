@@ -697,21 +697,49 @@ function buildMiniModel(mats, detail) {
   return { group, windows, spill };
 }
 
-/* ---------- 玻璃球内的场景 ---------- */
-const MINI_PIVOT = { y: 8, z: -31 };
+/* ---------- 转台度量 ----------
+   简模按世界坐标量一遍三角面：几何中心用来定枢轴，绕竖轴的
+   最大投影半径用来给底板留出包裹余量。 */
+const FLOOR_GAP = 0.004;
 
+function measureModel(group) {
+  group.updateMatrixWorld(true);
+  const p = new THREE.Vector3();
+  const box = new THREE.Box3();
+  group.traverse((o) => {
+    const pos = o.isMesh && o.geometry?.attributes?.position;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      box.expandByPoint(p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld));
+    }
+  });
+  const center = box.getCenter(new THREE.Vector3());
+  let radius = 0;
+  group.traverse((o) => {
+    const pos = o.isMesh && o.geometry?.attributes?.position;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      radius = Math.max(radius, Math.hypot(p.x - center.x, p.z - center.z));
+    }
+  });
+  return { box, center, radius };
+}
+
+/* ---------- 玻璃球内的场景 ---------- */
 function createMiniScene(mats) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x0a0806, 0.0058);
 
-  // 转台以建筑中心为轴：拖动时是整座剧院在原地转身，而不是绕入口甩动
+  // 建筑与底板同挂一个转台：枢轴取建筑几何中心，拖动时整座剧院连同
+  // 底板一起转身，任何角度下两者的相对变换都不变，不会出现穿板
+  const model = buildMiniModel(mats, false);
+  const metrics = measureModel(model.group);
   const pivot = new THREE.Group();
-  pivot.position.set(0, MINI_PIVOT.y, MINI_PIVOT.z);
+  pivot.position.copy(metrics.center);
   pivot.rotation.order = 'YXZ';
   scene.add(pivot);
-
-  const model = buildMiniModel(mats, false);
-  model.group.position.set(0, -MINI_PIVOT.y, -MINI_PIVOT.z);
+  model.group.position.sub(metrics.center);
   pivot.add(model.group);
 
   const hemi = new THREE.HemisphereLight(0x7d90a8, 0x1a110c, 0.95);
@@ -727,13 +755,16 @@ function createMiniScene(mats) {
   scene.add(warm);
   scene.add(warm.target);
 
-  // 球底座，给模型一个落点
+  // 球底座：底板也是转台的子节点，顶面与建筑底面贴合，半径覆盖旋转圆盘
+  const floorTop = metrics.box.min.y - FLOOR_GAP;
+  const baseR = Math.max(42, metrics.radius + 1.5);
   const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(42, 44, 0.5, 48),
+    new THREE.CylinderGeometry(baseR, baseR + 2, 0.5, 48),
     new THREE.MeshStandardMaterial({ color: 0x100b08, roughness: 0.75, metalness: 0.1 })
   );
-  base.position.set(0, 0.1, -31);
-  scene.add(base);
+  base.position.set(0, floorTop - 0.25 - metrics.center.y, 0);
+  base.name = 'orbBase';
+  pivot.add(base);
 
   // 玩家位置：一小团暖白火光，始终朝相机呈现
   const marker = new THREE.Group();
@@ -753,9 +784,11 @@ function createMiniScene(mats) {
 
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 400);
   camera.position.set(52, 54, 96);
-  camera.lookAt(0, 10, -30);
+  const look = metrics.center.clone();
+  look.y += 1.5;
+  camera.lookAt(look);
 
-  return { scene, camera, pivot, model, marker, halo, core };
+  return { scene, camera, pivot, model, marker, halo, core, base, center: metrics.center, metrics };
 }
 
 /* ---------- 鸟瞰台场景 ---------- */
@@ -764,8 +797,13 @@ function createStageScene(mats, quality) {
   scene.fog = new THREE.FogExp2(0x0a0806, 0.0048);
 
   const model = buildMiniModel(mats, true);
+  // 与球内一致：枢轴落在建筑几何中心，模型反向平移回原位，
+  // 台面、铜圈、接触暗部全部挂到同一个转台组，绕轴旋转时相对变换恒定
+  const metrics = measureModel(model.group);
   const pivot = new THREE.Group();
+  pivot.position.copy(metrics.center);
   pivot.add(model.group);
+  model.group.position.sub(metrics.center);
   scene.add(pivot);
 
   /* 木台：深色台面 + 接触暗部 + 一圈细铜线 */
@@ -774,19 +812,21 @@ function createStageScene(mats, quality) {
     roughness: 0.58,
     metalness: 0.12
   });
-  const table = new THREE.Mesh(new THREE.CircleGeometry(43, 64), tableMat);
+  const tableR = Math.max(43, metrics.radius + 1.5);
+  const tableY = metrics.box.min.y - FLOOR_GAP;
+  const table = new THREE.Mesh(new THREE.CircleGeometry(tableR, 64), tableMat);
   table.rotation.x = -Math.PI / 2;
-  table.position.set(0, -0.12, -28);
+  table.position.set(0, tableY - metrics.center.y, 0);
   table.receiveShadow = quality.tier === 'full';
-  scene.add(table);
+  pivot.add(table);
 
   const tableRing = new THREE.Mesh(
-    new THREE.TorusGeometry(42.6, 0.22, 8, 96),
+    new THREE.TorusGeometry(tableR - 0.4, 0.22, 8, 96),
     new THREE.MeshStandardMaterial({ color: 0x7a5a30, roughness: 0.45, metalness: 0.6 })
   );
   tableRing.rotation.x = Math.PI / 2;
-  tableRing.position.set(0, 0.02, -28);
-  scene.add(tableRing);
+  tableRing.position.set(0, tableY + 0.14 - metrics.center.y, 0);
+  pivot.add(tableRing);
 
   const shadowMat = new THREE.MeshBasicMaterial({
     map: mats.glowMap,
@@ -795,10 +835,10 @@ function createStageScene(mats, quality) {
     opacity: 0.45,
     depthWrite: false
   });
-  const contact = new THREE.Mesh(new THREE.PlaneGeometry(48, 82), shadowMat);
+  const contact = new THREE.Mesh(new THREE.CircleGeometry(tableR - 1.2, 48), shadowMat);
   contact.rotation.x = -Math.PI / 2;
-  contact.position.set(0, 0.03, -28);
-  scene.add(contact);
+  contact.position.set(0, tableY + 0.03 - metrics.center.y, 0);
+  pivot.add(contact);
 
   /* 灯光：冷天光 + 暖室内，窗带自发光 */
   const hemi = new THREE.HemisphereLight(0x8094ac, 0x160f0b, 1.0);
@@ -828,7 +868,7 @@ function createStageScene(mats, quality) {
   scene.add(rim.target);
 
   if (quality.tier === 'full') {
-    pivot.traverse((o) => {
+    model.group.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
@@ -970,6 +1010,10 @@ function createStageScene(mats, quality) {
     pivot,
     model,
     table,
+    tableRing,
+    contact,
+    center: metrics.center,
+    metrics,
     anchors,
     hotspots,
     hitMeshes,
@@ -1565,7 +1609,7 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     updateLevels(mini, miniLevels, info.placeId, dt);
 
     const mark = current.anchor || current.mark;
-    if (mark) mini.marker.position.set(mark[0], mark[1] - MINI_PIVOT.y, mark[2] - MINI_PIVOT.z);
+    if (mark) mini.marker.position.set(mark[0] - mini.center.x, mark[1] - mini.center.y, mark[2] - mini.center.z);
     const level = miniLevels[info.placeId] ?? 0.06;
     const pulse = 1 + Math.sin(info.time * 2.0) * 0.09;
     mini.core.scale.setScalar((0.85 + 0.5 * level) * pulse);
@@ -1592,7 +1636,9 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     update,
     open,
     close,
-    isOpen: () => openFlag
+    isOpen: () => openFlag,
+    // 验收接口：只读暴露两套场景的变换与几何，方便脚本量穿插与相对矩阵
+    inspect: () => ({ mini, stage })
   };
 }
 
