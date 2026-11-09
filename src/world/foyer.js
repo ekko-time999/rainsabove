@@ -244,18 +244,13 @@ export function buildFoyer(scene, mats, quality) {
   crestRing.position.set(0, 8.75, -16.46);
   group.add(crestRing);
 
-  // 拱内半掩的丝绒帘与短帷幔
+  // 丝绒帘挂在洞口两侧的墙面上，不再探入洞口：门洞净宽保持 ±2.2m 全通
   for (const sign of [-1, 1]) {
-    const curtain = new THREE.Mesh(curtainGeometry(1.05, 6.5, 4, 0.09), mats.velvet);
-    curtain.position.set(sign * 1.82, 3.25, -17.05);
+    const curtain = new THREE.Mesh(curtainGeometry(0.8, 6.2, 4, 0.09), mats.velvet);
+    curtain.position.set(sign * 2.65, 3.1, -16.44);
     curtain.castShadow = true;
     group.add(curtain);
   }
-  const valance = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.62, 0.06), mats.velvet);
-  valance.position.set(0, 6.22, -17.02);
-  group.add(valance);
-  gold.add(4.35, 0.06, 0.1, 0, 5.9, -16.98);
-  gold.add(4.35, 0.08, 0.1, 0, 6.54, -16.98);
 
   /* ---------- 门厅墙面：护墙板 / 饰板 / 壁柱 ---------- */
   const bayEdges = [-0.2, -1.9, -5.6, -9.3, -13.0, -16.4];

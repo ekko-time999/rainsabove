@@ -65,16 +65,16 @@ export function buildCorridor(scene, mats) {
         seg.receiveShadow = true;
         group.add(seg);
       }
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL - 6.75, SCR_DOOR_HALF * 2), mats.plaster);
-      head.position.set(sign * (HALF + 0.15), (6.75 + CEIL) / 2, SCR_DOOR_Z);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL - 6.2, SCR_DOOR_HALF * 2), mats.plaster);
+      head.position.set(sign * (HALF + 0.15), (6.2 + CEIL) / 2, SCR_DOOR_Z);
       head.receiveShadow = true;
       group.add(head);
 
-      wood.add(0.16, 2.72, 0.14, sign * HALF, 5.39, SCR_DOOR_Z - SCR_DOOR_HALF - 0.05);
-      wood.add(0.16, 2.72, 0.14, sign * HALF, 5.39, SCR_DOOR_Z + SCR_DOOR_HALF + 0.05);
-      wood.add(0.16, 0.18, 1.56, sign * HALF, 6.79, SCR_DOOR_Z);
-      goldDeep.add(0.06, 2.62, 0.06, sign * (HALF - 0.06), 5.34, SCR_DOOR_Z - SCR_DOOR_HALF);
-      goldDeep.add(0.06, 2.62, 0.06, sign * (HALF - 0.06), 5.34, SCR_DOOR_Z + SCR_DOOR_HALF);
+      wood.add(0.16, 2.22, 0.14, sign * HALF, 5.14, SCR_DOOR_Z - SCR_DOOR_HALF - 0.05);
+      wood.add(0.16, 2.22, 0.14, sign * HALF, 5.14, SCR_DOOR_Z + SCR_DOOR_HALF + 0.05);
+      wood.add(0.16, 0.18, 1.56, sign * HALF, 6.24, SCR_DOOR_Z);
+      goldDeep.add(0.06, 2.1, 0.06, sign * (HALF - 0.06), 5.1, SCR_DOOR_Z - SCR_DOOR_HALF);
+      goldDeep.add(0.06, 2.1, 0.06, sign * (HALF - 0.06), 5.1, SCR_DOOR_Z + SCR_DOOR_HALF);
     } else {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL, W_LEN), mats.plaster);
       wall.position.set(sign * (HALF + 0.15), CEIL / 2, W_MID);
@@ -114,16 +114,14 @@ export function buildCorridor(scene, mats) {
   ceiling.position.set(0, CEIL, W_MID);
   group.add(ceiling);
 
-  // 半圆拱肋：把通道读成筒形拱。竖向拉高 1.26 倍，拱顶下皮由 2.11m 抬到 2.66m
-  const ribRise = HALF * 1.26;
+  // 半圆拱肋：把通道读成筒形拱
   const ribGeo = new THREE.TorusGeometry(HALF, 0.085, 6, 30, Math.PI);
   const ribZ = [-17.2, -19.6, -22.0, -24.4, -26.8];
   for (const z of ribZ) {
     const rib = new THREE.Mesh(ribGeo, mats.goldDeep);
     rib.position.set(0, WALL_TOP, z);
-    rib.scale.set(1, 1.26, 1);
     group.add(rib);
-    gold.add(0.12, 0.1, 0.16, 0, WALL_TOP + ribRise, z);
+    gold.add(0.12, 0.1, 0.16, 0, WALL_TOP + HALF, z);
   }
 
   /* ---------- 两侧拱形壁龛 ---------- */
