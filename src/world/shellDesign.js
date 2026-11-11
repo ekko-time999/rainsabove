@@ -227,6 +227,23 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
     return mesh;
   }
 
+  /* 门洞暖光：只允许门套内侧两条窄光带，绝不允许整幅衬板。
+     历史上这里是一块 4.6×4.1 的整幅暖光板，从门厅往外看就是一堵墙；
+     光带内缘到中线的距离在构建时断言，避免以后改尺寸又把门洞封死。
+     光带用 userData 标记，验收脚本可以直接按构件查，而不是靠名字猜。 */
+  function doorGlowBands({ half, band, height, y, z, mat, level }) {
+    const innerEdge = half - band / 2;
+    if (!(innerEdge > 0.05)) {
+      throw new Error(`door glow bands seal the doorway centreline: half=${half} band=${band}`);
+    }
+    for (const sign of [-1, 1]) {
+      const mesh = glowBar(band, height, 0.08, sign * half, y, z, mat, level);
+      mesh.userData.doorGlowBand = { half, band, innerEdge: +innerEdge.toFixed(3) };
+      // 不参与静态合批：保留成可查的独立构件，验收脚本能直接列包围盒
+      mesh.userData.noMerge = true;
+    }
+  }
+
   const F = SHELL.FRONT;
   const L = SHELL.LINK;
   const HS = SHELL.HOUSE;
@@ -777,9 +794,7 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
       goldDeep.add(0.72, 0.16, 0.6, sign * 2.56, 5.46, 1.0);
     }
     // 拱内暖光：只做门套两侧窄光带，门洞中线保持通透
-    for (const sign of [-1, 1]) {
-      glowBar(0.2, 3.9, 0.08, sign * 2.02, 4.2, 0.18, wallGlowMid, 0.34);
-    }
+    doorGlowBands({ half: 2.02, band: 0.2, height: 3.9, y: 4.2, z: 0.18, mat: wallGlowMid, level: 0.34 });
     // 基座：门洞范围断开，门槛处不再横一道 0.86m 石带
     // 后侧带同样在门厅拱洞（±2.2m）处让开，避免透过拱门看到整条石带
     plinth(F.z0, F.z1, F.half, 0.86, M.stoneDark, portalHalf + 0.95, [-2.2, 2.2]);
@@ -885,9 +900,7 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
     prism(5.2, 1.1, 0.68, 0, 11.45, 0.92, M.stone);
     goldDeep.add(6.4, 0.1, 0.16, 0, 11.46, 1.28);
     // 门洞暖光衬底只保留门套两侧两条窄光带：整幅衬板会挡住门洞中线视线
-    for (const sign of [-1, 1]) {
-      glowBar(0.22, 4.1, 0.08, sign * 2.18, 3.3, 0.18, wallGlowMid, 0.32);
-    }
+    doorGlowBands({ half: 2.18, band: 0.22, height: 4.1, y: 3.3, z: 0.18, mat: wallGlowMid, level: 0.32 });
 
     // 基座：门洞范围断开，门槛处不再横一道 0.86m 石带
     // 后侧带同样在门厅拱洞（±2.2m）处让开，避免透过拱门看到整条石带
@@ -965,9 +978,7 @@ export function buildDesignShell(scene, mats, quality, schemeId = 'c') {
     }
     box(portalHalf * 2 + 0.5, 0.24, 0.7, 0, 4.98, 1.62, M.goldDeep);
     // 暖光衬在门扇之后：只保留两侧窄光带，避免整幅挡住门洞
-    for (const sign of [-1, 1]) {
-      glowBar(0.22, 4.2, 0.08, sign * 2.2, 2.4, 0.18, wallGlowMid, 0.3);
-    }
+    doorGlowBands({ half: 2.2, band: 0.22, height: 4.2, y: 2.4, z: 0.18, mat: wallGlowMid, level: 0.3 });
     for (const sign of [-1, 1]) {
       for (const x of [5.6, 8.4]) {
         const px = sign * x;

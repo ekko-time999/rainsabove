@@ -1,4 +1,4 @@
-export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgramme }) {
+export function createHUD({ onEnter, onNext, onEnterStop, onDirectory }) {
   const loader = document.getElementById('loader');
   const startScreen = document.getElementById('start-screen');
   const enterBtn = document.getElementById('enter-btn');
@@ -16,7 +16,6 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
   const dirNav = document.getElementById('dir-nav');
   const enterStop = document.getElementById('enter-stop');
   const enterLabel = document.getElementById('enter-stop-label');
-  const programmeBtn = document.getElementById('programme-btn');
   const guideBtn = document.getElementById('guide-btn');
 
   let started = false;
@@ -143,10 +142,6 @@ export function createHUD({ onEnter, onNext, onEnterStop, onDirectory, onProgram
     enterStop.addEventListener('click', () => {
       if (enterId && enterStop.classList.contains('is-on')) onEnterStop?.(enterId);
     });
-  }
-
-  if (programmeBtn) {
-    programmeBtn.addEventListener('click', () => (onProgramme || onDirectory)?.());
   }
 
   if (guideBtn) {

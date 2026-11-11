@@ -5,8 +5,11 @@ export function detectQuality() {
   const mobile = coarse || small || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const dpr = window.devicePixelRatio || 1;
   const forceLite = /(?:^|[?&])lite(?:[=&]|$)/.test(location.search);
+  // ?full：移动端/小窗口也按全档跑。只为验收时同机位同尺寸对照两档成本，
+  // 不改变真机默认（默认仍是移动端走 lite）。
+  const forceFull = /(?:^|[?&])full(?:[=&]|$)/.test(location.search);
 
-  if (mobile || forceLite) {
+  if (forceLite || (mobile && !forceFull)) {
     return {
       tier: 'lite',
       pixelRatio: Math.min(dpr, 1.5),

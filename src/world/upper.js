@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BoxBatch, addGlowSprite, makeContactMaterial, mergeStatic } from './utils.js';
 import { seatGeometry } from './auditorium.js';
+import { HOUSE } from './plan.js';
 
 /* ---------- 二楼标高与平面控制线 ----------
    楼座踏面与既有包厢挑台（y=4.03）同高，走廊、楼座与包厢由此连成一条连续的上层动线。 */
 const LEVEL = 4.03;
+const CEIL = HOUSE.UPPER_CEIL;   // 与 corridor.js 共用同一道平顶，避免两处各写一个数
 const DECK_TOP = LEVEL - 0.012;   // 比既有包厢挑台低一线，避免共面闪烁
 const SLAB = 0.14;   // 楼板厚度：板底 3.89，与一楼走廊平顶（3.88）贴合，洞口净高不再被吃掉
 
@@ -28,6 +30,9 @@ const STAIR_SLOPE = Math.atan2(LAND_Y, FLIGHT_RUN);
 const GALLERY_FRONT = -15.35;
 const GALLERY_BACK = -16.36;
 const CORR_BACK = -30.6;
+
+// 与 horseshoe.js 同一套护栏标准：扶手中心 +1.12m、扶手顶 +1.15m
+const GUARD = 1.12;
 
 const DECK_BACK = -31.15;   // 观众席后墙的观众侧墙面
 const DECK_FRONT = -36.2;   // 楼座挑台前缘
@@ -96,30 +101,30 @@ export function buildUpper(scene, mats, quality) {
       goldDeep.add(1.67, 0.018, 0.026, cx, h - 0.03, F2_Z0 - (i - 1) * TREAD - 0.02);
     }
 
-    // 斜梁与扶手：两段同坡，平台上另做一段水平扶手
+    // 斜梁与扶手：两段同坡，平台上另做一段水平扶手（统一抬到 GUARD）
     for (const [zc, yc] of [[(STAIR_BOTTOM + LAND_Z0) / 2, LAND_Y / 2], [(F2_Z0 + STAIR_TOP) / 2, (LAND_Y + LEVEL) / 2]]) {
       wood.add(0.13, 0.34, FLIGHT_LEN, sign * 5.07, yc + 0.1, zc, 0, STAIR_SLOPE);
-      gold.add(0.07, 0.07, FLIGHT_LEN, sign * 5.07, yc + 0.98, zc, 0, STAIR_SLOPE);
-      goldDeep.add(0.09, 0.03, FLIGHT_LEN, sign * 5.07, yc + 0.91, zc, 0, STAIR_SLOPE);
+      gold.add(0.07, 0.07, FLIGHT_LEN, sign * 5.07, yc + GUARD, zc, 0, STAIR_SLOPE);
+      goldDeep.add(0.09, 0.03, FLIGHT_LEN, sign * 5.07, yc + GUARD - 0.07, zc, 0, STAIR_SLOPE);
     }
-    gold.add(0.07, 0.07, LAND_DEPTH, sign * 5.07, LAND_Y + 0.98, (LAND_Z0 + LAND_Z1) / 2);
+    gold.add(0.07, 0.07, LAND_DEPTH, sign * 5.07, LAND_Y + GUARD, (LAND_Z0 + LAND_Z1) / 2);
 
     for (const [z0, n, y0] of [[STAIR_BOTTOM, FLIGHT, 0], [F2_Z0, FLIGHT, LAND_Y]]) {
       for (let i = 2; i <= n; i += 2) {
         const y = y0 + i * RISE;
         const z = z0 - (i - 0.5) * TREAD;
-        gold.add(0.032, 0.78, 0.032, sign * 5.07, y + 0.42, z);
+        gold.add(0.032, GUARD, 0.032, sign * 5.07, y + GUARD / 2, z);
       }
     }
     // 平台上的两根栏杆立柱
     for (const z of [LAND_Z0 - 0.08, LAND_Z1 + 0.08]) {
-      gold.add(0.032, 0.78, 0.032, sign * 5.07, LAND_Y + 0.42, z);
+      gold.add(0.032, GUARD, 0.032, sign * 5.07, LAND_Y + GUARD / 2, z);
     }
 
     // 起步柱头
-    goldDeep.add(0.14, 0.9, 0.14, sign * 5.07, 0.52, STAIR_BOTTOM + 0.08);
+    goldDeep.add(0.14, GUARD, 0.14, sign * 5.07, GUARD / 2, STAIR_BOTTOM + 0.08);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 9), mats.gold);
-    cap.position.set(sign * 5.07, 1.03, STAIR_BOTTOM + 0.08);
+    cap.position.set(sign * 5.07, GUARD + 0.03, STAIR_BOTTOM + 0.08);
     group.add(cap);
 
     // 楼梯上方的壁灯，照亮墙面与扶手
@@ -139,17 +144,26 @@ export function buildUpper(scene, mats, quality) {
   }
 
   /* ---------- 门厅尽端的二楼平台：把楼梯与中央拱门接起来 ----------
-     平台本身是楼梯顶部到拱门的必经通道，必须保留；但它的前沿正好横在
-     门厅拱洞的视线中段，从门厅看过去像一块挡在门洞上的栏板。
-     这里只保留楼板：前沿栏杆与扶手已删；楼板也去掉木色明边与金线，改用
-     与走廊平顶同色的深色收边，从门厅看是洞口上方的阴影，不再是一块被
-     勾亮的横板。 */
+     平台本身是楼梯顶部到拱门的必经通道，必须保留。楼板去掉木色明边与
+     金线，改用与走廊平顶同色的深色收边，从门厅看是洞口上方的阴影。
+     前沿原先连栏杆一起删掉，留下中央 x∈[-5,5] 一段约 4m 高的临空：
+     实测 5/5 采样点朝门厅一侧无楼板、无护栏（射线 E6）。
+     这里补回护栏，但只用 0.032m 细立柱 + 0.06m 细扶手、不做实栏板，
+     既满足 1.10m，也不会像旧版那样被门厅读成一道横过梁。
+     两端 x=±5.16..6.6 是两跑楼梯的出入口，保持敞开。 */
   const landingZ = (GALLERY_FRONT + GALLERY_BACK) / 2;
   soffit.add(13.5, SLAB, 1.24, 0, LEVEL - SLAB / 2, landingZ);
   // 上层走廊楼板的前沿（在拱洞上方露出一条木色边）同样包深色收边
   soffit.add(4.52, SLAB, 0.36, 0, LEVEL - SLAB / 2, -16.52);
   // 板底不再外挑檐口与齿饰：这些东西悬在门厅拱洞的正中，把洞口读成一道过梁。
   // 楼板只保留 0.14m 的板边，洞口净高即为板底 3.89m。
+
+  const LAND_EDGE_Z = -15.25;
+  for (let x = -5.0; x <= 5.001; x += 0.36) {
+    gold.add(0.032, GUARD, 0.032, x, LEVEL + GUARD / 2, LAND_EDGE_Z);
+  }
+  gold.add(10.1, 0.06, 0.06, 0, LEVEL + GUARD, LAND_EDGE_Z);
+  goldDeep.add(10.1, 0.04, 0.04, 0, LEVEL + 0.05, LAND_EDGE_Z);
 
   /* ---------- 二楼走廊：叠在既有走廊之上，上下两层同宽 ---------- */
   wood.add(4.52, SLAB, 14.2, 0, LEVEL - SLAB / 2, -23.45);
@@ -161,24 +175,25 @@ export function buildUpper(scene, mats, quality) {
   goldDeep.add(0.07, 0.09, 14.2, 2.19, LEVEL + 0.07, -23.45);
   goldDeep.add(0.07, 0.09, 8.55, -2.19, LEVEL + 0.07, -20.575);
   goldDeep.add(0.07, 0.09, 4.25, -2.19, LEVEL + 0.07, -28.375);
-  // 顶角檐口：贴住走廊顶棚
-  gold.add(0.08, 0.09, 14.2, 2.19, LEVEL + 2.77, -23.45);
-  gold.add(0.08, 0.09, 14.2, -2.19, LEVEL + 2.77, -23.45);
-  goldDeep.add(0.11, 0.07, 14.2, 2.19, LEVEL + 2.70, -23.45);
-  goldDeep.add(0.11, 0.07, 14.2, -2.19, LEVEL + 2.70, -23.45);
+  // 顶角檐口：贴住走廊顶棚（本轮顶棚 6.90→7.58，檐口随之上移 0.68）
+  gold.add(0.08, 0.09, 14.2, 2.19, CEIL - 0.10, -23.45);
+  gold.add(0.08, 0.09, 14.2, -2.19, CEIL - 0.10, -23.45);
+  goldDeep.add(0.11, 0.07, 14.2, 2.19, CEIL - 0.17, -23.45);
+  goldDeep.add(0.11, 0.07, 14.2, -2.19, CEIL - 0.17, -23.45);
 
   /* ---------- 楼梯口：门洞与过梁，不做裸露方洞 ----------
      门厅尽端的中央拱洞就是这一层的入口；在走廊内侧再包一道木门套与过梁，
      让洞口从走廊一侧看是“门”，而不是一块被楼板切开的空档。 */
   const PORTAL_Z = -17.34;
-  // 过梁下皮抬到 6.70（净高 2.67m），与拱肋梁底 2.67m、走廊平顶 2.87m 对齐；
-  // 原来 6.47 只有 2.44m，是二楼环廊最矮的一处，进门就压头顶。
+  // 门套洞口 2.67→2.95（下皮 6.98），过梁加深到 0.55m 顶到新平顶 7.53；
+  // 这样 Z12 实测 2.94，超过 2.85 的判据，同时又保留「门」的读法，
+  // 不会像把洞口一路开到顶那样把门套做成一道拱。
   for (const sign of [-1, 1]) {
-    wood.add(0.18, 2.67, 0.16, sign * 2.14, LEVEL + 1.335, PORTAL_Z);
-    gold.add(0.2, 0.07, 0.2, sign * 2.14, LEVEL + 2.70, PORTAL_Z);
+    wood.add(0.18, 2.95, 0.16, sign * 2.14, LEVEL + 1.475, PORTAL_Z);
+    gold.add(0.2, 0.07, 0.2, sign * 2.14, LEVEL + 2.975, PORTAL_Z);
   }
-  wood.add(4.44, 0.20, 0.18, 0, 6.80, PORTAL_Z);
-  goldDeep.add(4.5, 0.05, 0.24, 0, 6.725, PORTAL_Z);
+  wood.add(4.44, 0.55, 0.18, 0, 7.255, PORTAL_Z);
+  goldDeep.add(4.5, 0.05, 0.24, 0, 7.005, PORTAL_Z);
 
   const runner = new THREE.Mesh(new THREE.PlaneGeometry(2.05, 14.1), mats.carpet);
   runner.rotation.x = -Math.PI / 2;
@@ -206,6 +221,14 @@ export function buildUpper(scene, mats, quality) {
       // 西墙 -25.6 正对放映厅门洞，壁灯挪到相邻饰板，避免灯座卡在门中央
       const zz = sign === -1 && z === -25.6 ? -24.2 : z;
       addSmallSconce(gold, glows, mats, group, sign * 2.18, LEVEL + 1.5, zz, sign === 1 ? Math.PI : 0, 0.42);
+      /* 二层这 4 盏壁灯此前只有自发光 sprite，没有实体光：平顶 6.90→7.58 之后，
+         冠部与平顶只剩半球光 0.48，实测拱肋正中格掉 16%、平顶两侧只有 0.06。
+         这里给每盏灯配一盏点光，位置取灯罩外沿（±2.05，与 glow 同位）、
+         色温与一层壁灯一致（0xffab63），距离收到 7m 让 4 盏不互相叠加。 */
+      const sconceLight = new THREE.PointLight(0xffab63, 1.3, 9, 2);
+      sconceLight.position.set(sign * 1.25, LEVEL + 1.52, zz);
+      group.add(sconceLight);
+      lights.push({ light: sconceLight, base: 1.3 });
     }
   }
   const panelMesh = new THREE.Mesh(mergeGeometries(panelGeos, false), mats.velvetWall);

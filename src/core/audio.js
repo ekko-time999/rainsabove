@@ -170,6 +170,20 @@ export function createAudio(quality) {
     return c.state === 'running';
   }
 
+  /* 切后台时挂起，回前台恢复。只在音频真的跑起来过之后才动，
+     没有用户手势建过 AudioContext 的话什么都不做。 */
+  async function suspend() {
+    if (!ctx || ctx.state !== 'running') return false;
+    try { await ctx.suspend(); } catch { /* 浏览器不接受挂起，忽略 */ }
+    return ctx.state === 'suspended';
+  }
+
+  async function resume() {
+    if (!ctx || ctx.state !== 'suspended') return false;
+    try { await ctx.resume(); } catch { /* 仍被策略拦着，下次手势再试 */ }
+    return ctx.state === 'running';
+  }
+
   function setMuted(v) {
     muted = !!v;
     try { localStorage.setItem(STORE_KEY, muted ? 'muted' : 'on'); } catch { /* ignore */ }
@@ -345,6 +359,8 @@ export function createAudio(quality) {
 
   return {
     unlock,
+    suspend,
+    resume,
     setMuted,
     isMuted: () => muted,
     toggleMute: () => setMuted(!muted),

@@ -27,6 +27,7 @@ import {
 import { createHUD } from './ui/hud.js';
 import { createOverlay } from './ui/overlay.js';
 import { createOrb } from './ui/orb.js';
+import { createPreviewBar } from './ui/previewBar.js';
 import { createAudio } from './core/audio.js';
 import { createShow } from './core/show.js';
 import { tween, easeInOutSine, easeOutCubic } from './core/anim.js';
@@ -160,12 +161,7 @@ const hud = createHUD({
   onEnter: () => enterFoyer(),
   onNext: (id) => go(id),
   onEnterStop: (id) => overlay?.open(id),
-  onDirectory: () => overlay?.openDirectory(),
-  onProgramme: () => {
-    const id = currentSpaceId();
-    if (STOP_BY_ID[id]) overlay?.open(id);
-    else overlay?.openDirectory();
-  }
+  onDirectory: () => overlay?.openDirectory()
 });
 
 tour = new Tour({
@@ -310,6 +306,9 @@ applyViewport();
 window.addEventListener('resize', applyViewport);
 window.addEventListener('orientationchange', () => setTimeout(applyViewport, 260));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', applyViewport);
+
+/* ---------- 预览标识：仅预览构建创建，正式构建这里什么都不做 ---------- */
+createPreviewBar();
 
 /* ---------- 内容浮层：节目单 / 档案卡 ---------- */
 overlay = createOverlay({
@@ -516,8 +515,29 @@ function currentPlaceId() {
 
 /* ---------- 启动与渲染循环 ---------- */
 let readyShown = false;
-const startedAt = performance.now();
+let startedAt = performance.now();
 let lastTime = startedAt;
+
+/* ---------- 切后台停帧 ----------
+   页面隐藏时浏览器会掐掉 rAF，但部分移动浏览器在切走的那一两帧里还会照常
+   调度，音频上下文更是完全照跑。这里显式停：整帧直接返回，音频挂起。
+   回来时把演出时钟整体后移同样的时长，否则 time 会一次跳过几十秒，
+   体积光、粒子相位、演出时间轴都会闪一下。 */
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = performance.now();
+    audio.suspend();
+    return;
+  }
+  if (hiddenAt) {
+    const gap = performance.now() - hiddenAt;
+    startedAt += gap;
+    hiddenAt = 0;
+  }
+  lastTime = 0;          // 下一帧重新起算 dt，不把后台时长当一帧
+  audio.resume();
+});
 
 engine.renderer.compile(engine.scene, camera);
 
@@ -532,6 +552,13 @@ function idleCamera(time) {
 
 function frame(now) {
   requestAnimationFrame(frame);
+  // 后台：不更新、不渲染、不提交绘制。rAF 名义上会被浏览器停掉，
+  // 但停不干净的那一两帧不必再花 10ms 去画一张没人看的画面。
+  if (document.hidden) {
+    lastTime = now;
+    return;
+  }
+  if (!lastTime) lastTime = now;
   const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
   lastTime = now;
   const time = (now - startedAt) / 1000;
@@ -558,7 +585,9 @@ function frame(now) {
     x: camera.position.x,
     z: camera.position.z,
     yaw: currentYaw(),
-    time
+    time,
+    // 转场路径的实时采样点与水平切线：球内/鸟瞰台视点据此严格同步
+    follow: tour.follow
   });
 
   // 鸟瞰台展开时主场景暂停渲染，两套渲染器不会同时跑
@@ -592,5 +621,7 @@ window.__proscenium = {
   loadStopEntries,
   go,
   setShellScheme: (id) => world.setShellScheme(id),
-  getShellScheme: () => world.getShellScheme()
+  getShellScheme: () => world.getShellScheme(),
+  // 验收用：主循环时钟。切后台回来时 time 不应跳，dt 不应变成后台时长
+  getClock: () => ({ time: (performance.now() - startedAt) / 1000, lastDt: lastTime ? (performance.now() - lastTime) / 1000 : null, hidden: document.hidden })
 };

@@ -990,50 +990,8 @@ body[data-phase="explore"] .dpad {
   outline: 1px solid var(--gold);
   outline-offset: 3px;
 }
-.programme-btn {
-  position: fixed;
-  right: clamp(16px, 3.2vw, 34px);
-  bottom: clamp(18px, 3vh, 30px);
-  z-index: 14;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 13px;
-  border: 1px solid rgba(205, 174, 118, 0.24);
-  background: #120b099e;
-  color: var(--gold);
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition:
-    opacity 0.4s var(--ease),
-    border-color 0.35s var(--ease),
-    color 0.35s var(--ease),
-    background 0.35s var(--ease);
-}
-.programme-btn svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-}
-.programme-btn:hover {
-  border-color: #e6c98b8c;
-  color: var(--gold-bright);
-  background: #1e120dc7;
-}
-.programme-btn:focus-visible {
-  outline: 1px solid var(--gold);
-  outline-offset: 4px;
-}
-body[data-overlay="open"] .programme-btn,
-body[data-orb="open"] .programme-btn {
-  opacity: 0;
-  pointer-events: none;
-}
+/* 原「节目单」按钮与 .orb-root 同在右下角、被球压住，已整块删除。
+   目录入口改由 .guide-btn「站点导览」承担（见下方），不留空规则。 */
 body[data-overlay="open"] .hud,
 body[data-overlay="open"] .brand,
 body[data-overlay="open"] .act,
@@ -1095,8 +1053,10 @@ body[data-phase="explore"] .orb-root {
   transform: none;
 }
 body[data-phase="cinematic"] .orb-root {
-  opacity: 0;
-  pointer-events: none;
+  /* 转场期间球内视点沿路径推进，球必须保持可见且可拖动查看；
+     原来整颗淡出并禁用指针，玩家看不到"正在从哪儿走到哪儿"。 */
+  opacity: 0.94;
+  transform: none;
 }
 body[data-overlay="open"] .orb-root {
   opacity: 0 !important;
@@ -1827,10 +1787,15 @@ body[data-orb="open"] #scene canvas {
 .space-link.is-current .space-go {
   color: var(--gold-bright);
 }
+/* 节目单按钮删除后，「站点导览」成为常驻目录入口：桌面放到玻璃球左侧
+   （球右距 clamp(18px,3vw,34px)，球身约 134px，再留 16px 间隙）。
+   左下角本来就是 HUD 的当前站点指示 01/门厅/FOYER，不能占它的位。
+   竖屏媒体查询再把它放回右下（竖屏球在右上）。 */
 .guide-btn {
-  display: none;
+  display: inline-flex;
   position: fixed;
-  right: clamp(16px, 3.2vw, 34px);
+  left: auto;
+  right: calc(clamp(18px, 3vw, 34px) + 150px);
   bottom: clamp(18px, 3vh, 30px);
   z-index: 14;
   align-items: center;
@@ -1864,9 +1829,6 @@ body[data-orb="open"] #scene canvas {
   color: var(--gold-bright);
   background: #1e120dc7;
   outline: none;
-}
-.programme-btn {
-  pointer-events: auto;
 }
 body[data-overlay="open"] .guide-btn,
 body[data-orb="open"] .guide-btn {
@@ -1961,19 +1923,12 @@ body[data-orb="open"] .stage-tools {
   :root {
     --dock-b: calc(env(safe-area-inset-bottom) + 12px);
   }
-  #programme-btn,
   .guide-btn {
     display: inline-flex;
     bottom: var(--dock-b);
     padding: 9px 11px;
     font-size: 9px;
     letter-spacing: 0.18em;
-  }
-  #programme-btn {
-    left: 12px;
-    right: auto;
-  }
-  .guide-btn {
     right: 12px;
     left: auto;
   }
@@ -3473,5 +3428,89 @@ body[data-orb="open"] .stage-tools {
     z-index: 15;
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+/* ---------------- 预览标识条：仅 VITE_PREVIEW=1 的构建会创建这个节点 ----------------
+   位置取顶部中间：左侧是 brand、右侧是 ACT 与演出三钮、底部被 stop-card / hints /
+   dpad 占满，中间是唯一不会压住既有 HUD 的空区。纯 DOM 覆盖层，不进 3D 画布。 */
+.preview-bar {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + clamp(12px, 2vh, 22px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 5px 0 9px;
+  border: 1px solid rgba(205, 174, 118, 0.26);
+  border-radius: 999px;
+  background: rgba(7, 5, 4, 0.6);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+  color: rgba(233, 223, 205, 0.7);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.preview-bar[hidden] {
+  display: none;
+}
+.preview-bar-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--gold);
+  opacity: 0.8;
+  box-shadow: 0 0 7px rgba(205, 174, 118, 0.7);
+}
+.preview-bar-text {
+  padding-right: 1px;
+}
+.preview-bar-close {
+  pointer-events: auto;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(233, 223, 205, 0.45);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.2s var(--ease),
+    background 0.2s var(--ease);
+}
+.preview-bar-close:hover {
+  color: var(--paper);
+  background: rgba(233, 223, 205, 0.1);
+}
+/* 触摸设备：竖屏下 stage-tools 跑到左上（x12-132, y60-94）、dpad 水平居中
+   （390 宽时 x137-253）、guide-btn 贴右下，底部 0-92 与 797+ 都被占。
+   标识条落在 dpad 上沿之上：bottom = dpad 的 bottom(clamp16-26) + 其高度 76 + 8 间距。 */
+@media (hover: none), (pointer: coarse) {
+  .preview-bar {
+    top: calc(env(safe-area-inset-top, 0px) + clamp(52px, 7.4vh, 78px) + 40px);
+    left: clamp(14px, 4vw, 22px);
+    transform: none;
+  }
+}
+@media (max-width: 380px) {
+  .preview-bar {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    gap: 6px;
+    padding: 0 4px 0 8px;
   }
 }

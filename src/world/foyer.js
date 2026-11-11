@@ -194,10 +194,16 @@ export function buildFoyer(scene, mats, quality) {
   wallShape.lineTo(-7.5, 10.8);
   wallShape.closePath();
 
+  /* 墙洞是本层入廊的第一道卡口：原来是半径 2.2 的半圆，冠只有 6.60，
+     比走廊里的木门套（6.70）还低 0.10——上一轮 Z12 量在门套上，
+     把这道墙洞漏掉了。这里改成竖椭圆：半跨仍是 2.2，竖向半径 2.55，
+     冠抬到 6.95（净高 2.914），与门套 2.95 一起过 2.85 的判据。
+     起拱线仍留在 4.4，不做「高跷拱」，门厅的构图不变。 */
+  const ARCH_RY = 2.55;
   const hole = new THREE.Path();
   hole.moveTo(-2.2, 0);
   hole.lineTo(-2.2, 4.4);
-  hole.absarc(0, 4.4, 2.2, Math.PI, 0, true);
+  hole.absellipse(0, 4.4, 2.2, ARCH_RY, Math.PI, 0, true);
   hole.lineTo(2.2, 0);
   hole.closePath();
   wallShape.holes.push(hole);
@@ -213,17 +219,22 @@ export function buildFoyer(scene, mats, quality) {
   group.add(farWall);
 
   /* ---------- 台口拱饰 ---------- */
+  // 三道拱饰随墙洞一起竖向拉开（2.55/2.2 = 1.159），起拱线不变
+  const ARCH_SY = ARCH_RY / 2.2;
   const archA = new THREE.Mesh(archBandGeometry(2.2, 2.6, 0.2), mats.goldDeep);
   archA.position.set(0, 4.4, -16.62);
+  archA.scale.y = ARCH_SY;
   group.add(archA);
 
   const archB = new THREE.Mesh(archBandGeometry(2.6, 2.92, 0.28), mats.marble);
   archB.position.set(0, 4.4, -16.7);
+  archB.scale.y = ARCH_SY;
   archB.receiveShadow = true;
   group.add(archB);
 
   const archC = new THREE.Mesh(archBandGeometry(2.14, 2.2, 0.16), mats.brass);
   archC.position.set(0, 4.4, -16.5);
+  archC.scale.y = ARCH_SY;
   group.add(archC);
 
   for (const sign of [-1, 1]) {

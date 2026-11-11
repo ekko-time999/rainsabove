@@ -1,11 +1,24 @@
 // 六个停靠点：门厅 / 后台 / 舞台 / 放映厅 / 包厢 / 关于我（主理人办公室）。
 // 二楼楼座与包厢后廊都可实际行走，不再依赖写死机位。
+import * as THREE from 'three';
 import { HOUSE, STAIR, halfWidth, walkFloorY, stageFloorY, wallFrame, wallPlace } from '../world/plan.js';
 
 const F = [0, 1.64, -3.0];
 const G_CORR = [[0, 1.64, -16.9], [0, 1.64, -23.6], [0, 3.045, -31.4]];
 const G_HOUSE = [...G_CORR, [0, 2.631, -38.8], [0, 2.307, -44.6], [0, 2.61, -48.4]];
-const BS_IN = [[4.6, 2.73, -57.9], [4.6, 2.59, -59.0], [3.6, 2.59, -60.6]];
+/* 后台进出的公共通道。
+   戏服架 / 衣架立柱集中在 x 2.8..5.0、z -60.6..-59.4，门套红丝绒在
+   (4.14,-57.64)。原来的走法从 [3.6,-60.6] / [4.6,-59.0] 横切，
+   离柱面只有 0.13m，镜头会贴着（甚至穿过）红丝绒。
+   改成先沿 x≈2 往北退到 z=-58.6（架子的北侧净空），再贴 z=-58.6
+   横移到东侧门洞中线 x=4.85，最后穿过门洞。全程离柱面 >= 0.45m。 */
+const BS_OUT = [
+  [1.6, 2.59, -59.1],
+  [2.0, 2.59, -58.6],
+  [4.85, 2.59, -58.6],
+  [4.85, 2.73, -57.9]
+];
+const BS_IN = [...BS_OUT].reverse();
 // 大楼梯：24 级 × 0.1679m，中途 1.15m 休息平台；相机眼高随踏面逐级抬升
 const U_STAIR = [
   [5.85, 1.64, -6.4],
@@ -52,6 +65,10 @@ const OFFICE_BACK_TO_BS = [
   [-9.0, 2.59, -64.5], [-8.25, 2.59, -64.4], [-7.4, 2.59, -64.3], [-6.0, 2.59, -64.3],
   [-4.4, 2.59, -63.5], [-2.0, 2.59, -62.6], [0.2, 2.59, -62.0], [2.0, 2.59, -61.3]
 ];
+// 后台站位 → 办公室：直接斜穿后台去西墙洞口，不再先出门绕到台口再折回来
+const BS_TO_OFFICE = [
+  [0.2, 2.59, -62.0], [-2.0, 2.59, -62.6], [-4.4, 2.59, -63.5], ...OFFICE_DOOR
+];
 // 侧台东行 → 舞台背墙东门 → 创意工坊（北半间）
 const SHOP_IN = [
   [3.0, 2.63, -50.5],
@@ -63,7 +80,7 @@ const SHOP_IN = [
 ];
 // 从侧台过桥（而不是从后台）进工坊：先回到侧台高度，再转进北门
 const SHOP_FROM_PASS = [
-  [4.6, 2.73, -57.9], [6.2, 2.69, -56.0], [8.6, 2.68, -56.0],
+  [4.85, 2.73, -57.9], [6.2, 2.69, -56.0], [8.6, 2.68, -56.0],
   [9.9, 2.66, -56.8], [9.9, 2.63, -57.9], [9.9, 2.59, -58.9], [10.2, 2.59, -61.4]
 ];
 // 工坊回舞台：从北门出，沿侧台回主台
@@ -82,8 +99,7 @@ const SHOP_TO_BACK = [
 ];
 // 一层大厅/舞台一侧回到楼梯脚
 const FLOOR_TO_STAIR = [
-  [4.6, 2.59, -59.0],
-  [4.6, 2.73, -57.9],
+  ...BS_OUT,
   [0, 2.61, -48.4],
   [0, 2.307, -44.6],
   [0, 3.045, -31.4],
@@ -398,13 +414,10 @@ const GROUND_JOIN = {
 
 // 侧向空间 ↔ 主干之间的支路：out 是离场方向，in 是入场方向
 const GROUND_ARM = {
-  backstage: {
-    out: [[3.6, 2.59, -60.6], [4.6, 2.59, -59.0], [4.6, 2.73, -57.9]],
-    in: BS_IN
-  },
+  backstage: { out: BS_OUT, in: BS_IN },
   workshop: { out: SHOP_TO_STAGE, in: SHOP_IN },
   about: {
-    out: [...OFFICE_BACK_TO_BS, [3.2, 2.63, -58.4], [4.6, 2.73, -57.9]],
+    out: [...OFFICE_BACK_TO_BS, ...BS_OUT],
     in: [...BS_IN, ...BACKSTAGE_TO_OFFICE]
   }
 };
@@ -435,14 +448,16 @@ function groundRoute(from, to) {
   return groundChain(GROUND_JOIN[from], from, to);
 }
 
-export function routeBetween(from, to) {
+/* 旧版：按主干顺序串联的老路线，仅作为最短路失败时的兜底保留。
+   正常路径一律走下面的站点图。 */
+function legacyRouteBetween(from, to) {
   if (from === to) return [];
   // 任意空间 → 走廊
   if (to === 'corridor') {
     if (from === 'foyer' || from === 'auditorium') return null; // 默认 via 过滤即可
     if (from === 'about') return [...OFFICE_BACK_TO_BS, ...FLOOR_TO_STAIR, ...CORR_FROM_FOYER_SIDE];
     if (from === 'workshop') return [...SHOP_TO_STAGE, ...CORR_BACK.slice(1)];
-    if (from === 'backstage') return [[3.2, 2.63, -58.4], [4.6, 2.73, -57.9], ...CORR_BACK.slice(1)];
+    if (from === 'backstage') return [...BS_OUT, ...CORR_BACK.slice(1)];
     if (isUpperSpace(from)) {
       const head = from === 'box' ? TO_HUB.box : from === 'screening' ? SCR_OUT : TO_HUB.gallery;
       return [
@@ -476,7 +491,7 @@ export function routeBetween(from, to) {
     if (isUpperSpace(to)) {
       return [
         ...SHOP_TO_STAGE,
-        ...FLOOR_TO_STAIR.slice(3),
+        ...FLOOR_TO_STAIR.slice(5),
         ...STAIR_TO_UPPER,
         ...FROM_HUB[to].slice(1)
       ];
@@ -530,8 +545,7 @@ export function routeBetween(from, to) {
     }
     if (from === 'backstage') {
       return [
-        [3.2, 2.63, -58.4],
-        [4.6, 2.73, -57.9],
+        ...BS_OUT,
         ...CORR_BACK.slice(1),
         ...TO_STAIR_FOOT.slice(1),
         ...STAIR_TO_UPPER.slice(1),
@@ -541,6 +555,134 @@ export function routeBetween(from, to) {
     return [...STAIR_TO_UPPER, ...FROM_HUB[to].slice(1)];
   }
   return null;
+}
+
+/* ==================================================================
+   站点连通图 + 最短路
+   旧版 routeBetween 把侧向空间一律挂到主干节点 8（台口），于是
+   后台→办公室要先出门到首演台、再折回后台、最后钻进办公室。
+   这里按建筑里的真实连通关系建图：每条边就是一段原有的显式路线，
+   边权取该段 CatmullRom 候选路径的实际弧长（与 buildTravel 同源，
+   arcLengthDivisions=320），10 个站点上跑 Dijkstra。站与站之间
+   仍复用原有分段路径与 tour.js 的避障，不新增任何几何。
+   ================================================================== */
+/* 二层走廊 / 大楼梯口：上层三站共用的换乘节点，不是节目单上的站点。
+   没有它，放映厅下楼就得先绕到楼座尾端平台再折回，白走约 9m。 */
+const HALL_POSE = [0, 5.67, -26.2];
+const GRAPH_POSES = { hall: HALL_POSE };
+const poseOf = (id) => GRAPH_POSES[id] || (NAV[id] || STOP_BY_ID[id]).pose.position;
+
+/* 去掉与起终点重合的途经点：有些老路线把落点自己也列进来了，
+   直接拼进 CatmullRom 会出现零长段和尖角 */
+function trimRoute(via, fromId, toId) {
+  const a = poseOf(fromId);
+  const b = poseOf(toId);
+  const pts = via.map((p) => p.slice());
+  // 只去掉与取景机位严格重合的首尾点。包厢门口的第一个转弯点离机位
+  // 约 0.3m，裁掉会让 CatmullRom 切过包厢侧墙，所以阈值必须收紧
+  while (pts.length && Math.hypot(pts[0][0] - a[0], pts[0][2] - a[2]) < 0.15) pts.shift();
+  while (pts.length && Math.hypot(pts[pts.length - 1][0] - b[0], pts[pts.length - 1][2] - b[2]) < 0.15) pts.pop();
+  return dedupe(pts, 0.08);
+}
+
+/* 与 buildTravel 相同的候选曲线，取它的实际弧长作为边权 */
+function segmentArcLength(fromId, toId, via) {
+  const pts = [new THREE.Vector3(...poseOf(fromId)),
+    ...via.map((p) => new THREE.Vector3(...p)),
+    new THREE.Vector3(...poseOf(toId))];
+  if (pts.length < 3) return new THREE.LineCurve3(pts[0], pts[1]).getLength();
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  curve.arcLengthDivisions = 320;
+  return curve.getLength();
+}
+
+const MAIN_FC = [[0, 1.64, -16.9]];
+const MAIN_CA = [[0, 1.64, -23.6], [0, 3.045, -31.4]];
+const MAIN_AS = [[0, 2.631, -38.8], [0, 2.307, -44.6], [0, 2.61, -48.4]];
+
+// [起点, 终点, 去程途经点, 回程途经点]
+const STATION_SEGMENTS = [
+  ['foyer', 'corridor', MAIN_FC, [...MAIN_FC].reverse()],
+  ['corridor', 'auditorium', MAIN_CA, [...MAIN_CA].reverse()],
+  ['auditorium', 'stage', MAIN_AS, [...MAIN_AS].reverse()],
+  ['stage', 'backstage', BS_IN, BS_OUT],
+  ['backstage', 'about', BS_TO_OFFICE, [...BS_TO_OFFICE].reverse()],
+  ['backstage', 'workshop', SHOP_FROM_BACK, SHOP_TO_BACK],
+  ['stage', 'workshop', SHOP_IN, SHOP_TO_STAGE],
+  // 一层 ↔ 二层走廊：大楼梯两个方向各用自己的踏步序列
+  ['hall', 'foyer', DOWN_STAIR, STAIR_TO_UPPER.slice(0, -1)],
+  ['hall', 'corridor',
+    [...DOWN_STAIR, [3.6, 1.64, -8.6], [0, 1.64, -13.5], [0, 1.64, -18.5]],
+    [...TO_STAIR_FOOT, ...STAIR_TO_UPPER.slice(1, -1)]],
+  // 二层走廊 ↔ 放映厅 / 楼座 / 包厢：都从 HUB_PT 或走廊直接发散，
+  // 不再强制先到楼座取景机位再折返
+  ['hall', 'screening', FROM_HUB.screening.slice(2), SCR_OUT],
+  ['hall', 'gallery', [[0, 5.67, -27.4], HUB_PT, [0, 5.67, -31.2]],
+    [...TO_HUB.gallery, [0, 5.67, -27.4]]],
+  ['hall', 'box', [[0, 5.67, -27.4], HUB_PT, ...FROM_HUB.box],
+    [...TO_HUB.box, [0, 5.67, -27.4]]],
+  // 楼座与包厢同在尾端平台上，直连比「上到楼梯口再折回平台」省约 5.6m
+  ['gallery', 'box', upperToUpper('gallery', 'box').slice(1), upperToUpper('box', 'gallery')]
+];
+
+/* 有向邻接表：每个方向用自己的路线与实际弧长，上下楼的代价并不对称 */
+const STATION_GRAPH = (() => {
+  const adj = new Map();
+  const add = (from, to, via) => {
+    const clean = trimRoute(via, from, to);
+    if (!adj.has(from)) adj.set(from, []);
+    adj.get(from).push({ to, via: clean, weight: segmentArcLength(from, to, clean) });
+  };
+  for (const [a, b, ab, ba] of STATION_SEGMENTS) {
+    add(a, b, ab);
+    add(b, a, ba);
+  }
+  return adj;
+})();
+
+export function shortestStationPath(from, to) {
+  if (from === to) return { sequence: [from], distance: 0, hops: [] };
+  if (!STATION_GRAPH.has(from)) return null;
+  const dist = new Map([[from, 0]]);
+  const prev = new Map();
+  const done = new Set();
+  for (;;) {
+    let u = null;
+    let best = Infinity;
+    for (const [k, v] of dist) {
+      if (!done.has(k) && v < best) { best = v; u = k; }
+    }
+    if (u === null || u === to) break;
+    done.add(u);
+    for (const e of STATION_GRAPH.get(u) || []) {
+      const nd = best + e.weight;
+      if (nd < (dist.has(e.to) ? dist.get(e.to) : Infinity)) {
+        dist.set(e.to, nd);
+        prev.set(e.to, { from: u, edge: e });
+      }
+    }
+  }
+  if (!prev.has(to)) return null;
+  const hops = [];
+  let cur = to;
+  while (cur !== from) {
+    const p = prev.get(cur);
+    if (!p) return null;
+    hops.unshift({ from: p.from, to: cur, via: p.edge.via, weight: p.edge.weight });
+    cur = p.from;
+  }
+  return { sequence: [from, ...hops.map((h) => h.to)], distance: dist.get(to), hops };
+}
+
+export function routeBetween(from, to) {
+  if (from === to) return [];
+  const sp = shortestStationPath(from, to);
+  if (!sp) return legacyRouteBetween(from, to);
+  // 分段在边界直接接续：图上的中间站点是"经过它的空间"，不是必须绕到
+  // 它的取景机位再折回来。途经序列仍由这些 hop 给出，空间上也会穿过该站。
+  const pts = [];
+  for (const h of sp.hops) pts.push(...h.via);
+  return dedupe(pts, 0.08);
 }
 
 /* ---------- 空间与 HUD 文案 ---------- */
@@ -719,6 +861,30 @@ export function eyeHeightAt(zoneId) {
 export const LEVEL_GROUND = 'ground';
 export const LEVEL_UPPER = 'upper';
 
+/* ==================================================================
+   离散单体障碍：可行走区模型之外的"路中间的东西"。
+   墙、门套、栏杆由下面的 GROUND_WALK / UPPER_WALK 区域边界表达，
+   但立在通道里的柱子、垂落的丝绒、戏服架属于单体，constrainWalk
+   完全看不见它们。转场避障必须额外把它们当圆柱碰撞体探测，
+   否则 8 方向探距只会读到墙，镜头会贴着（甚至穿过）这些构件。
+   半径取构件水平截面的外接圆，y0/y1 是它实际占据的高度区间。
+   ================================================================== */
+export const WALK_OBSTACLES = [
+  // 后台门套前垂下的一角红丝绒：0.52×2.4×0.24，立在 x=4.14 的门洞左缘
+  {
+    id: 'backstage-portiere', label: '后台门套红丝绒柱', level: LEVEL_GROUND,
+    x: 4.14, z: -57.64, r: 0.30, y0: 0.95, y1: 3.35
+  },
+  // 后台衣架上的五件红丝绒戏服（0.55×1.0×0.16），沿斜线排开
+  ...[0, 1, 2, 3, 4].map((i) => ({
+    id: `backstage-costume-${i}`, label: '后台戏服架', level: LEVEL_GROUND,
+    x: 3.18 + i * 0.36, z: -60.35 + i * 0.22, r: 0.34, y0: 2.2, y1: 3.3
+  })),
+  // 衣架两端的铜立柱
+  { id: 'rack-post-l', label: '衣架立柱', level: LEVEL_GROUND, x: 2.8, z: -60.6, r: 0.10, y0: 1.7, y1: 3.4 },
+  { id: 'rack-post-r', label: '衣架立柱', level: LEVEL_GROUND, x: 5.0, z: -60.6, r: 0.10, y0: 1.7, y1: 3.4 }
+];
+
 export function stairFloorY(z) {
   if (z >= STAIR.Z_BOTTOM) return 0;
   if (z > STAIR.LAND_Z0) {
@@ -797,10 +963,15 @@ const UPPER_WALK = [
   { type: 'ring', id: 'arch-l', cx: 0, cz: HOUSE.TAIL, r0: 4.4, r1: 5.1, a0: -1.1, a1: -0.98, y: 4.03, space: 'gallery' },
   { type: 'ring', id: 'outer-r', cx: 0, cz: HOUSE.TAIL, r0: 5.0, r1: 6.55, a0: 0.94, a1: 1.58, y: 4.03, space: 'gallery' },
   { type: 'ring', id: 'outer-l', cx: 0, cz: HOUSE.TAIL, r0: 5.0, r1: 6.55, a0: -1.58, a1: -0.94, y: 4.03, space: 'gallery' },
-  { type: 'rect', id: 'corner-r', x0: 5.0, x1: 6.55, z0: -35.18, z1: -34.35, y: 4.03, space: 'gallery' },
-  { type: 'rect', id: 'corner-l', x0: -6.55, x1: -5.0, z0: -35.18, z1: -34.35, y: 4.03, space: 'gallery' },
-  { type: 'seg', id: 'backcorr-r', ax: 5.365, az: -34.648, bx: 8.731, bz: -46.999, half: 0.78, y: 4.03, space: 'gallery' },
-  { type: 'seg', id: 'backcorr-l', ax: -5.365, az: -34.648, bx: -8.731, bz: -46.999, half: 0.78, y: 4.03, space: 'gallery' },
+  /* 转角与后廊的接缝：上一轮 84 格「模型可走、几何无板」里，77 格就出自
+     backcorr 起点 (5.365,-34.648) 的 0.78m 圆头——那个圆头把可行走区画到
+     r=4.60，整段落在 r 4.60..5.02 的弧墙实体里。这里不补板（补板就是造假地面），
+     而是把圆头退到 z=-36.2 的 (5.788,-36.2)：该点 r=5.894，减去 0.78 仍余
+     r=5.114 > 5.02 的墙外皮，圆头不再进墙；中间那段由 corner 矩形接住。 */
+  { type: 'rect', id: 'corner-r', x0: 5.06, x1: 6.36, z0: -36.2, z1: -34.35, y: 4.03, space: 'gallery' },
+  { type: 'rect', id: 'corner-l', x0: -6.36, x1: -5.06, z0: -36.2, z1: -34.35, y: 4.03, space: 'gallery' },
+  { type: 'seg', id: 'backcorr-r', ax: 5.788, az: -36.2, bx: 8.731, bz: -46.999, half: 0.78, y: 4.03, space: 'gallery' },
+  { type: 'seg', id: 'backcorr-l', ax: -5.788, az: -36.2, bx: -8.731, bz: -46.999, half: 0.78, y: 4.03, space: 'gallery' },
   { type: 'seg', id: 'boxdoor-r', ax: 7.02, az: -40.7, bx: 5.45, bz: -40.95, half: 0.42, y: 4.03, space: 'gallery' },
   { type: 'rect', id: 'box-r', cx: BOX_C[0], cz: BOX_C[1], hx: 0.76, hz: 0.72, yaw: BOX_F.yaw, y: 4.03, space: 'box' },
   // 左侧包厢与右侧对称：端点必须取右侧的镜像，原来两端都落在包厢内，

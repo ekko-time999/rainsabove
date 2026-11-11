@@ -6,6 +6,7 @@ import {
   PORTRAIT_POSE,
   routeBetween,
   constrainWalk,
+  WALK_OBSTACLES,
   LEVEL_GROUND,
   LEVEL_UPPER
 } from './stops.js';
@@ -24,6 +25,8 @@ const PATH_SAMPLES = 180;
 const LEVEL_SPLIT_Y = 3.4;
 const PROBE_STEP = 0.08;
 const PROBE_MAX = 1.4;
+/* 单体障碍的净距目标：比墙的 0.3m 更宽，镜头近平面 0.08m 之外还要留余量 */
+const OBSTACLE_MARGIN = 0.42;
 
 const smooth01 = (t) => {
   const u = Math.max(0, Math.min(1, t));
@@ -31,12 +34,116 @@ const smooth01 = (t) => {
 };
 const levelAtY = (y) => (y > LEVEL_SPLIT_Y ? LEVEL_UPPER : LEVEL_GROUND);
 
+/* 把角度差归一到 (-180°, 180°]，对应
+     delta = ((target - current + 540) % 360) - 180
+   用弧度表达，并额外处理 JS 取模对负数返回负值的情形。
+   所有 yaw 插值（起步并入、相邻切线采样、末段并入）都必须走这里，
+   否则 ±π 分支会被逐段解缠累积成一整圈，收尾再硬跳回站点朝向。 */
+const TAU = Math.PI * 2;
+function normAngleDelta(d) {
+  let r = (((d + Math.PI * 3) % TAU) + TAU) % TAU - Math.PI;
+  return r;
+}
+
+/* 把绝对角度收回 (-180°, 180°]：球内视点每帧直接取该值，
+   相邻帧的视觉变化天然是短弧，不会像连续解缠那样累积出整圈。 */
+function normAngle(a) {
+  const r = normAngleDelta(a);
+  return r <= -Math.PI ? r + TAU : r;
+}
+
+/* 某处路径的水平切线。ArcPath 是折线，用 u 与 u+0.004 的差分；
+   末端改用向后差分，保证 u=1 时也有切线（视点收尾不丢朝向）。
+   只取 XZ，绝不带 y：爬坡上楼不会把俯仰带起来。 */
+const TANGENT_EPS = 0.004;
+/* 球内跟随视点的固定俯角：略低头能看到脚下路线导轨与楼层结构。
+   恒为常数、全程不随路径或时间变化，俯仰完全平稳不摆动。 */
+const FOLLOW_PITCH = -0.28;
+/* 行进方向取前方 1.6m 的弧长基线：ArcPath 是折线（180 个等弧长采样点），
+   避障让位留下大量微小锯齿，瞬时 0.004 差分在拐点单帧能跳 121°，
+   拿它当视点朝向会一路甩头（实测一段累计 1452°）。固定弧长窗口的
+   有限差分才是物理上有意义的「该处水平切线 / 行进方向」。 */
+const DIRECTION_ARC = 1.6;
+function tangentAt(path, u, a, b, c, d) {
+  // 局部切线（严格意义上的「该处切线」，验收基准）
+  let u0 = Math.max(0, Math.min(1, u));
+  let u1 = Math.min(1, u0 + TANGENT_EPS);
+  if (u1 - u0 < 1e-6) {
+    u1 = u0;
+    u0 = Math.max(0, u1 - TANGENT_EPS);
+  }
+  path.getPointAt(u0, a);
+  path.getPointAt(u1, b);
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-5) return null;
+  const localYaw = normAngle(Math.atan2(-dx, -dz));
+
+  // 前方 1.6m 的行进方向：窗口长度恒为 du。末端改成等长的向后窗口
+  // （方向仍是 d0 -> d1 的前向），绝不把窗口截成瞬时差分，否则收尾会
+  // 突然退化成锯齿切线并猛甩一下头。
+  const du = Math.min(0.08, Math.max(TANGENT_EPS, DIRECTION_ARC / Math.max(1, path.length)));
+  const uc = Math.max(0, Math.min(1, u));
+  let d0, d1;
+  if (uc + du <= 1) {
+    d0 = uc;
+    d1 = uc + du;
+  } else {
+    d1 = 1;
+    d0 = Math.max(0, 1 - du);
+  }
+  path.getPointAt(d0, c);
+  path.getPointAt(d1, d);
+  const ddx = d.x - c.x;
+  const ddz = d.z - c.z;
+  const dlen = Math.hypot(ddx, ddz);
+  const dirYaw = dlen > 1e-5 ? normAngle(Math.atan2(-ddx, -ddz)) : localYaw;
+
+  return { yaw: dirYaw, localYaw, dirYaw, dx: ddx / (dlen || 1), dz: ddz / (dlen || 1) };
+}
+
+/* 单体圆柱障碍：只在自身高度区间内、对应楼层生效。
+   返回到柱面的有符号距离（负数表示已经在柱体内）与径向单位向量。 */
+function obstacleDistance(x, z, y, level) {
+  let best = null;
+  for (const o of WALK_OBSTACLES) {
+    if (o.level && o.level !== level) continue;
+    if (y < o.y0 - 0.15 || y > o.y1 + 0.15) continue;
+    const dx = x - o.x;
+    const dz = z - o.z;
+    const r0 = Math.hypot(dx, dz) || 1e-6;
+    const d = r0 - o.r;
+    if (!best || d < best.d) best = { d, nx: dx / r0, nz: dz / r0, id: o.id };
+  }
+  return best;
+}
+
+/* 从 (x,z) 沿单位方向 (dx,dz) 发出射线，求第一次碰到某个柱面的距离 */
+function obstacleRayDistance(x, z, dx, dz, y, level) {
+  let best = Infinity;
+  for (const o of WALK_OBSTACLES) {
+    if (o.level && o.level !== level) continue;
+    if (y < o.y0 - 0.15 || y > o.y1 + 0.15) continue;
+    const ox = x - o.x;
+    const oz = z - o.z;
+    const c = ox * ox + oz * oz - o.r * o.r;
+    if (c <= 0) return 0;
+    const b = ox * dx + oz * dz;
+    const disc = b * b - c;
+    if (disc <= 0) continue;
+    const t = -b - Math.sqrt(disc);
+    if (t > 0 && t < best) best = t;
+  }
+  return best;
+}
+
 /* 门洞中线：axis 是要对齐的坐标，at 是中线值，gate 是洞口所在位置，
    range 是沿行进方向的生效范围，reach 是横向接近阈值，level 限定楼层。
    只有真正走到洞口附近的路径才会被收正，避免隔着一堵墙误吸。 */
 const DOOR_GATES = [
   { label: '门厅拱门', axis: 'x', at: 0, gate: -16.98, range: 1.15, reach: 2.0, level: LEVEL_GROUND },
-  { label: '后台过道', axis: 'x', at: 4.6, gate: -58.5, range: 1.05, reach: 1.6, level: LEVEL_GROUND },
+  { label: '后台过道', axis: 'x', at: 4.85, gate: -58.5, range: 1.05, reach: 1.6, level: LEVEL_GROUND },
   { label: '绘景棚门', axis: 'x', at: 9.9, gate: -58.15, range: 0.9, reach: 1.6, level: LEVEL_GROUND },
   { label: '办公室门', axis: 'z', at: -64.7, gate: -8.59, range: 0.6, reach: 1.2, level: LEVEL_GROUND },
   { label: '放映厅门', axis: 'z', at: -25.6, gate: -2.62, range: 0.55, reach: 1.2, level: LEVEL_UPPER },
@@ -47,19 +154,20 @@ const DOOR_GATES = [
 /* 侧向净距：从采样点沿 8 个方向探到可行走区边界。
    只用路径法向会在凹角处读到 0，斜向能正确量到墙角距离，
    同时给出最宽的一侧作为避让方向。 */
-function probeDir(x, z, dx, dz, level) {
+function probeDir(x, z, dx, dz, level, y) {
   let d = 0;
   for (let s = PROBE_STEP; s <= PROBE_MAX + 1e-6; s += PROBE_STEP) {
     const c = constrainWalk(x + dx * s, z + dz * s, level);
     if (!c || c.d > 0.012) break;
     d = s;
   }
-  return d;
+  // 路中间的单体不在可行走区模型里，必须和墙一起算净距
+  return Math.min(d, obstacleRayDistance(x, z, dx, dz, y, level));
 }
 
 const DIAG = Math.SQRT1_2;
 
-function clearanceAt(x, z, tx, tz, level, full = true) {
+function clearanceAt(x, z, y, tx, tz, level, full = true) {
   const nx = -tz;
   const nz = tx;
   // 第一遍只量左右两侧，够用且快；最后一遍量 8 个方向给出验收净距
@@ -82,7 +190,7 @@ function clearanceAt(x, z, tx, tz, level, full = true) {
   let mx = 1;
   let mz = 0;
   for (const [dx, dz] of dirs) {
-    const d = probeDir(x, z, dx, dz, level);
+    const d = probeDir(x, z, dx, dz, level, y);
     if (d < min) {
       min = d;
       mx = dx;
@@ -163,7 +271,7 @@ function enforceSafe(pts, base, margin, full = true) {
     const len = Math.hypot(tx, tz) || 1;
     tx /= len;
     tz /= len;
-    let cl = clearanceAt(p.x, p.z, tx, tz, level, full);
+    let cl = clearanceAt(p.x, p.z, base[i].y, tx, tz, level, full);
     clearances[i] = cl.min;
     const edge = smooth01(Math.min(i, N - i) / Math.max(1, N * 0.04));
     if (edge <= 0) continue;
@@ -178,12 +286,54 @@ function enforceSafe(pts, base, margin, full = true) {
       p.x = qx;
       p.z = qz;
       // 记录避让后的真实净距，验收读数才与最终路径一致
-      cl = clearanceAt(p.x, p.z, tx, tz, level, full);
+      cl = clearanceAt(p.x, p.z, base[i].y, tx, tz, level, full);
       clearances[i] = cl.min;
       if (cl.min <= prev + 0.005) break;
     }
   }
   return clearances;
+}
+
+/* 单体让位：把采样点推到柱面 margin 之外。
+   径向被墙挡住时改走切线（左右各试一次，取净距变大且仍在可行走区的一侧）。
+   端点不动，平滑由后面的 smoothOffsets 负责，避免把落点挪走。 */
+function avoidObstacles(pts, base, margin) {
+  const N = pts.length - 1;
+  for (let i = 1; i < N; i++) {
+    const p = pts[i];
+    const level = levelAtY(base[i].y);
+    const edge = smooth01(Math.min(i, N - i) / Math.max(1, N * 0.05));
+    if (edge <= 0) continue;
+    for (let k = 0; k < 8; k++) {
+      const o = obstacleRepel(p.x, p.z, base[i].y, level);
+      if (!o || o.d >= margin) break;
+      const push = Math.min(0.3, (margin - o.d) * 0.95) * edge;
+      const qx = p.x + o.nx * push;
+      const qz = p.z + o.nz * push;
+      const qc = constrainWalk(qx, qz, level);
+      if (qc && qc.d <= 0.002) {
+        p.x = qx;
+        p.z = qz;
+        continue;
+      }
+      // 径向出界：沿柱面切线绕行
+      let moved = false;
+      for (const sign of [1, -1]) {
+        const ax = p.x - o.nz * sign * push;
+        const az = p.z + o.nx * sign * push;
+        const ac = constrainWalk(ax, az, level);
+        if (!ac || ac.d > 0.002) continue;
+        const ad = obstacleDistance(ax, az, base[i].y, level);
+        if (!ad || ad.d > o.d + 1e-4) {
+          p.x = ax;
+          p.z = az;
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) break;
+    }
+  }
 }
 
 /* 平滑侧向修正，端点保持不动，避免把落点挪走 */
@@ -282,6 +432,140 @@ function buildWarp(clearances) {
   };
 }
 
+/* 让位方向用附近所有单体障碍的合力，而不是只看最近的一根：
+   成排的戏服 / 立柱会把单点推向邻居，来回振荡出不去。 */
+function obstacleRepel(x, z, y, level) {
+  let fx = 0;
+  let fz = 0;
+  let min = Infinity;
+  let id = '';
+  for (const o of WALK_OBSTACLES) {
+    if (o.level && o.level !== level) continue;
+    if (y < o.y0 - 0.15 || y > o.y1 + 0.15) continue;
+    const dx = x - o.x;
+    const dz = z - o.z;
+    const r0 = Math.hypot(dx, dz) || 1e-6;
+    const d = r0 - o.r;
+    if (d < min) { min = d; id = o.id; }
+    if (d < 1.2) {
+      const w = (1.2 - d) / 1.2;
+      fx += (dx / r0) * w;
+      fz += (dz / r0) * w;
+    }
+  }
+  const len = Math.hypot(fx, fz);
+  return { d: min, nx: len > 1e-6 ? fx / len : 1, nz: len > 1e-6 ? fz / len : 0, id };
+}
+
+/* 到所有单体柱面的最小净距（没有障碍时为 Infinity） */
+function obstacleClearance(x, z, y, level) {
+  let min = Infinity;
+  for (const o of WALK_OBSTACLES) {
+    if (o.level && o.level !== level) continue;
+    if (y < o.y0 - 0.15 || y > o.y1 + 0.15) continue;
+    const d = Math.hypot(x - o.x, z - o.z) - o.r;
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/* 最后一道硬保证：让每个采样顶点到柱面都 >= margin。
+   局部斥力在成排障碍之间会振荡、又被端点权重压住，靠调参永远有漏网对；
+   这里改成离散方向搜索：16 方向 × 7 档步长里挑「仍在可行走区、净距达标、
+   离原路线最近」的落点，逐点收敛，端点 i=0/N 不动（落点保持原样）。
+   相邻顶点间距约 0.3m；设 R = r + margin，弦上任意点到柱心至少
+   sqrt(R² - (L/2)²)，内缩不到 0.05m，因此顶点达标即可保证按 0.1m
+   采样落在弦上的点也达标，不必再逐弦修补单体障碍。 */
+const CLEAR_DIRS = Array.from({ length: 16 }, (_, k) => {
+  const a = (k / 16) * Math.PI * 2;
+  return [Math.cos(a), Math.sin(a)];
+});
+// 单次推距刻意压到 0.3m 内：一次推太远会拉出长弦，长弦会抄近路穿过柱体
+const CLEAR_STEPS = [0.05, 0.1, 0.17, 0.25, 0.32];
+
+function projectOutObstacles(pts, base, margin) {
+  const N = pts.length - 1;
+  for (let pass = 0; pass < 16; pass++) {
+    let moved = 0;
+    for (let i = 1; i < N; i++) {
+      const p = pts[i];
+      const level = levelAtY(p.y);
+      if (obstacleClearance(p.x, p.z, p.y, level) >= margin) continue;
+      let best = null;
+      for (const s of CLEAR_STEPS) {
+        for (const [dx, dz] of CLEAR_DIRS) {
+          const qx = p.x + dx * s;
+          const qz = p.z + dz * s;
+          const c = constrainWalk(qx, qz, level);
+          if (!c || c.d > 0.002) continue;
+          // 相邻两条弦的 1/4 / 1/2 / 3/4 处也不能因此越出可行走区
+          let chordsOk = true;
+          for (const j of [i - 1, i]) {
+            if (j < 0 || j >= N) continue;
+            const a = pts[j];
+            const b = pts[j + 1];
+            const ax = j === i - 1 ? a.x : qx;
+            const az = j === i - 1 ? a.z : qz;
+            const bx = j === i ? b.x : qx;
+            const bz = j === i ? b.z : qz;
+            for (let k = 1; k <= 3; k++) {
+              const t = k / 4;
+              const qc = constrainWalk(ax + (bx - ax) * t, az + (bz - az) * t, level);
+              if (!qc || qc.d > 0.02) { chordsOk = false; break; }
+            }
+            if (!chordsOk) break;
+          }
+          if (!chordsOk) continue;
+          const d = obstacleClearance(qx, qz, p.y, level);
+          if (d < margin) continue;
+          const ref = base && base[i];
+          const dev = ref ? Math.hypot(qx - ref.x, qz - ref.z) : s;
+          const score = d - dev * 0.08;
+          if (!best || score > best.score) best = { x: qx, z: qz, score };
+        }
+        if (best) break;
+      }
+      if (!best) continue;
+      p.x = best.x;
+      p.z = best.z;
+      moved++;
+    }
+    if (!moved) break;
+  }
+}
+
+/* 弦修补：measureSamples 会查相邻采样点之间的 1/4、1/2、3/4 处，
+   让位造成的折角可能让这些中间点短暂越出可行走区。这里把折角两端
+   按插值权重拉回区域内，端点固定不动，之后再验收就不会有漏网穿模。 */
+function repairChords(pts) {
+  const N = pts.length - 1;
+  for (let pass = 0; pass < 4; pass++) {
+    let fixed = 0;
+    for (let i = 0; i < N; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const level = levelAtY((a.y + b.y) * 0.5);
+      for (let k = 1; k <= 3; k++) {
+        const t = k / 4;
+        const x = a.x + (b.x - a.x) * t;
+        const z = a.z + (b.z - a.z) * t;
+        const c = constrainWalk(x, z, level);
+        if (!c || c.d <= 0.012) continue;
+        const dx = c.x - x;
+        const dz = c.z - z;
+        const wa = i === 0 ? 0 : t > 0.5 ? 0.9 : 0.6;
+        const wb = i === N - 1 ? 0 : t > 0.5 ? 0.6 : 0.9;
+        a.x += dx * wa;
+        a.z += dz * wa;
+        b.x += dx * wb;
+        b.z += dz * wb;
+        fixed++;
+      }
+    }
+    if (!fixed) break;
+  }
+}
+
 function measureSamples(pts, clearances) {
   const N = pts.length - 1;
   let clip = 0;
@@ -309,25 +593,31 @@ function measureSamples(pts, clearances) {
     }
   }
   let minClear = Infinity;
-  for (let i = 2; i < N - 1; i++) minClear = Math.min(minClear, clearances[i]);
+  // 细分后的点数会多于净距采样数，越界索引夹到最后一个有效读数
+  for (let i = 2; i < N - 1; i++) {
+    minClear = Math.min(minClear, clearances[Math.min(i, clearances.length - 1)]);
+  }
   const doorOffsets = [];
   let doorMax = 0;
   let doorLabel = '';
   for (const g of DOOR_GATES) {
-    let m = 0;
-    let nearest = Infinity;
-    for (let i = 0; i <= N; i++) {
-      const p = pts[i];
-      if (levelAtY(p.y) !== g.level) continue;
-      const along = Math.abs(g.axis === 'x' ? p.z - g.gate : p.x - g.gate);
-      const lateral = Math.abs(g.axis === 'x' ? p.x - g.at : p.z - g.at);
-      if (along >= g.range * 0.6) continue;
-      nearest = Math.min(nearest, lateral);
-      m = Math.max(m, lateral);
+    // 找路径真正跨过门洞平面的那一点（相邻采样点插值），量它到中线的偏移。
+    // 沿门洞平行走的路线（后台北侧走廊）不该被记成"偏离门中线 3m"。
+    let crossing = null;
+    for (let i = 1; i <= N; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      if (levelAtY((a.y + b.y) * 0.5) !== g.level) continue;
+      const va = (g.axis === 'x' ? a.z : a.x) - g.gate;
+      const vb = (g.axis === 'x' ? b.z : b.x) - g.gate;
+      if (va === vb || va * vb > 0) continue;
+      const t = va / (va - vb);
+      const lat = (g.axis === 'x' ? a.x + (b.x - a.x) * t : a.z + (b.z - a.z) * t) - g.at;
+      if (crossing === null || Math.abs(lat) < Math.abs(crossing)) crossing = lat;
     }
-    // 只有真正从这个洞口通过的路线才计入，隔着墙的缺口不算
-    if (nearest > 1.0) continue;
-    doorOffsets.push({ label: g.label, offset: +m.toFixed(2) });
+    if (crossing === null || Math.abs(crossing) > 1.0) continue;
+    const m = +Math.abs(crossing).toFixed(2);
+    doorOffsets.push({ label: g.label, offset: m });
     if (m > doorMax) {
       doorMax = m;
       doorLabel = g.label;
@@ -355,8 +645,15 @@ function buildSafePath(raw, fromPos, toPos) {
   applyDoorGates(pts, base);
   enforceSafe(pts, base, SAFE_MARGIN, false);
   smoothOffsets(base, pts, 5, 3);
+  // 先做单体让位并平滑，再交给最后一轮 enforceSafe 收口：
+  // 它同时负责把点夹回可行走区（弦采样才不会穿墙），且探距已包含单体障碍
+  avoidObstacles(pts, base, OBSTACLE_MARGIN);
+  smoothOffsets(base, pts, 8, 3);
   const clearances = enforceSafe(pts, base, SAFE_MARGIN, true);
   applyFloorHeight(pts, base);
+  repairChords(pts);
+  // 弦修补 / 局部让位都可能留下个别贴柱的点，最后做确定性硬投影收口
+  projectOutObstacles(pts, base, OBSTACLE_MARGIN);
 
   const path = new ArcPath(pts);
   return { path, warp: buildWarp(clearances), metrics: measureSamples(pts, clearances) };
@@ -376,6 +673,25 @@ export class Tour {
     this.travelTween = null;
     // 竖屏单独取景：转场与落点都把视线压平，避免一抬头就只剩吊灯
     this.portrait = false;
+
+    /* 玻璃球 / 鸟瞰台的「跟着走」数据源：每帧由 travelTo 写入，
+       与相机同源， orb.js 只做严格同步，不做二次插值。
+       point  = path.getPointAt(u)，即 travelTo 实际路径采样点；
+       yaw    = 该处水平切线，已归一到 (-180°,180°]；
+       path/u = 留给验收脚本独立复算，避免自证。 */
+    this.follow = {
+      enabled: false,      // 第一次转场后恒为 true：球内保持当前站点视角
+      traveling: false,
+      from: null,
+      to: null,
+      u: 0,
+      point: new THREE.Vector3(),
+      tangent: new THREE.Vector2(0, -1),
+      yaw: 0,              // 前方 1.6m 弧长窗口的行进朝向，已短弧归一
+      localYaw: 0,         // 瞬时局部切线，仅作锯齿诊断对照
+      pitch: FOLLOW_PITCH, // 恒定俯角：俯仰不摆动
+      path: null
+    };
   }
 
   /* 竖屏落点：保持机位与朝向，把注视点压到接近水平，
@@ -596,33 +912,54 @@ export class Tour {
 
     const pA = new THREE.Vector3();
     const pB = new THREE.Vector3();
+    const pT0 = new THREE.Vector3();
+    const pT1 = new THREE.Vector3();
+    const pT2 = new THREE.Vector3();
+    const pT3 = new THREE.Vector3();
 
-    /* 水平朝向采样：只取路径在 XZ 平面的切线，绝不带 y 分量，
-       因此行进过程中镜头不会因为上楼梯或爬坡而抬起来。
-       采样后做角度解缠，避免 ±π 处翻转。 */
+    /* 球内视点数据源：起点就用路径 u=0 的采样点与切线，
+       之后每个补间帧同步写一次，转场结束锁到 u=1。 */
+    const follow = this.follow;
+    follow.enabled = true;
+    follow.traveling = true;
+    follow.from = null;
+    follow.to = id;
+    follow.u = 0;
+    follow.path = path;
+    follow.pitch = FOLLOW_PITCH;
+    path.getPointAt(0, pA);
+    follow.point.copy(pA);
+    const tStart = tangentAt(path, 0, pT0, pT1, pT2, pT3);
+    if (tStart) {
+      follow.yaw = tStart.yaw;
+      follow.localYaw = tStart.localYaw;
+      follow.tangent.set(tStart.dx, tStart.dz);
+    }
+
+    /* 水平朝向：主旋转恒为「起点朝向 → 站点朝向」的短圈，累计转角
+       恒等于 |normAngleDelta(toYaw - fromYaw)| <= 180°。
+       旧版把路径切线做连续解缠，yaw 会累积到 400°+，收尾再硬跳回站点
+       朝向，观感就是先原地转一整圈再前进（corridor→foyer 净转角 0°
+       却转了 360°）。现在每一段拼接都逐段归一，切线只作为两端归零的
+       有限前瞻，不再主导朝向；每帧的 yaw 也收回 (-180°,180°]。 */
     const SAMPLES = 48;
-    const yawSamples = new Array(SAMPLES + 1);
-    yawSamples[0] = fromYaw;
+    const netDelta = normAngleDelta(toYaw - fromYaw);
+    const tangentYaw = new Array(SAMPLES + 1);
+    tangentYaw[0] = fromYaw;
     for (let i = 1; i <= SAMPLES; i++) {
       const u = i / SAMPLES;
       path.getPointAt(Math.min(1, u), pA);
       path.getPointAt(Math.min(1, u + 0.004), pB);
       const dx = pB.x - pA.x;
       const dz = pB.z - pA.z;
-      let y = Math.hypot(dx, dz) > 1e-4 ? Math.atan2(-dx, -dz) : yawSamples[i - 1];
-      while (y - yawSamples[i - 1] > Math.PI) y -= Math.PI * 2;
-      while (y - yawSamples[i - 1] < -Math.PI) y += Math.PI * 2;
-      yawSamples[i] = y;
+      // 只取 XZ 切线，绝不带 y 分量，爬坡上楼不会把镜头抬起来
+      const target = Math.hypot(dx, dz) > 1e-4 ? Math.atan2(-dx, -dz) : tangentYaw[i - 1];
+      tangentYaw[i] = normAngleDelta(tangentYaw[i - 1] + normAngleDelta(target - tangentYaw[i - 1]));
     }
-    // 终点朝向同样解缠到与路径末端同一分支，收尾不回摆
-    let endYaw = toYaw;
-    while (endYaw - yawSamples[SAMPLES] > Math.PI) endYaw -= Math.PI * 2;
-    while (endYaw - yawSamples[SAMPLES] < -Math.PI) endYaw += Math.PI * 2;
-
-    const smooth01Local = (t) => {
-      const u = Math.max(0, Math.min(1, t));
-      return u * u * (3 - 2 * u);
-    };
+    // 前瞻幅度上限：切线再怎么绕，也不会把镜头带出短圈预算
+    const LEAD_MAX = 0.42;
+    const LEAD_W = 0.45;
+    const endYaw = toYaw;
 
     this.rig.setEnabled(false);
     const levelStart = performance.now();
@@ -636,26 +973,48 @@ export class Tour {
         path.getPointAt(u, pA);
         this.camera.position.copy(pA);
 
+        // 球内视点严格取同一个采样点，朝向取该处水平切线（短弧归一）
+        follow.u = u;
+        follow.point.copy(pA);
+        const tan = tangentAt(path, u, pT0, pT1, pT2, pT3);
+        if (tan) {
+          follow.yaw = tan.yaw;
+          follow.localYaw = tan.localYaw;
+          follow.tangent.set(tan.dx, tan.dz);
+        }
+
         const f = Math.min(1, Math.max(0, u)) * SAMPLES;
         const i0 = Math.floor(f);
         const i1 = Math.min(SAMPLES, i0 + 1);
-        const yawPath = yawSamples[i0] + (yawSamples[i1] - yawSamples[i0]) * (f - i0);
+        // 相邻切线采样之间同样用短圈差值插值，多段拼接不绕远路
+        const seg = normAngleDelta(tangentYaw[i1] - tangentYaw[i0]);
+        const pathYaw = tangentYaw[i0] + seg * (f - i0);
 
-        // 起步：从当前视线转到行进方向；末段：并入站点正式朝向
-        const ws = Math.pow(Math.max(0, 1 - v / 0.2), 2);
-        const we = smooth01Local((u - 0.6) / 0.4);
-        const wa = Math.max(0.02, 1 - ws - we);
-        const total = ws + we + wa;
-        const yaw = (fromYaw * ws + yawPath * wa + endYaw * we) / total;
+        const base = fromYaw + netDelta * smooth01(u);
+        const lead = Math.max(-LEAD_MAX, Math.min(LEAD_MAX, normAngleDelta(pathYaw - base)))
+          * LEAD_W * Math.sin(Math.PI * Math.min(1, Math.max(0, u)));
+        const yaw = normAngleDelta(base + lead);
 
         // 前 0.32 秒把残余俯仰抹平，之后整段行进严格水平（与缓动进度无关）
         const level = (performance.now() - levelStart) / 1000;
-        const pitch = fromPitch * (1 - smooth01Local(level / 0.32));
+        const pitch = fromPitch * (1 - smooth01(level / 0.32));
         this.camera.rotation.set(pitch, yaw, 0, 'YXZ');
       },
       onComplete: () => {
         this.camera.position.copy(toPos);
         this.camera.rotation.set(0, endYaw, 0, 'YXZ');
+        // 球内视点精确落到目标站点：u=1 的路径采样点，朝向仍是末端切线，
+        // 不用阻尼追赶，也不回弹到展示机位，杜绝落点漂移。
+        follow.traveling = false;
+        follow.u = 1;
+        path.getPointAt(1, pA);
+        follow.point.copy(pA);
+        const tanEnd = tangentAt(path, 1, pT0, pT1, pT2, pT3);
+        if (tanEnd) {
+          follow.yaw = tanEnd.yaw;
+          follow.localYaw = tanEnd.localYaw;
+          follow.tangent.set(tanEnd.dx, tanEnd.dz);
+        }
         // 到达后用极短的过渡把水平视线升/压到该站的正式注视点
         tween({
           duration: 0.28,
