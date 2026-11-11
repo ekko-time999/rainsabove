@@ -697,21 +697,50 @@ function buildMiniModel(mats, detail) {
   return { group, windows, spill };
 }
 
-/* ---------- 玻璃球内的场景 ---------- */
-const MINI_PIVOT = { y: 8, z: -31 };
+/* ---------- 转台度量 ----------
+   简模按世界坐标量一遍三角面：几何中心用来定枢轴，绕竖轴的
+   最大投影半径用来给底板留出包裹余量。 */
+const FLOOR_GAP = 0.004;
 
+function measureModel(group) {
+  group.updateMatrixWorld(true);
+  const p = new THREE.Vector3();
+  const box = new THREE.Box3();
+  group.traverse((o) => {
+    const pos = o.isMesh && o.geometry?.attributes?.position;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      box.expandByPoint(p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld));
+    }
+  });
+  const center = box.getCenter(new THREE.Vector3());
+  let radius = 0;
+  group.traverse((o) => {
+    const pos = o.isMesh && o.geometry?.attributes?.position;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      radius = Math.max(radius, Math.hypot(p.x - center.x, p.z - center.z));
+    }
+  });
+  return { box, center, radius };
+}
+
+/* ---------- 玻璃球内的场景 ---------- */
 function createMiniScene(mats) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x0a0806, 0.0058);
 
-  // 转台以建筑中心为轴：拖动时是整座剧院在原地转身，而不是绕入口甩动
+  // 建筑与底板同挂一个转台：枢轴取建筑几何中心，拖动时整座剧院连同
+  // 底板一起转身，任何角度下两者的相对变换都不变，不会出现穿板
+  const model = buildMiniModel(mats, false);
+  const xray = createXray(model);
+  const metrics = measureModel(model.group);
   const pivot = new THREE.Group();
-  pivot.position.set(0, MINI_PIVOT.y, MINI_PIVOT.z);
+  pivot.position.copy(metrics.center);
   pivot.rotation.order = 'YXZ';
   scene.add(pivot);
-
-  const model = buildMiniModel(mats, false);
-  model.group.position.set(0, -MINI_PIVOT.y, -MINI_PIVOT.z);
+  model.group.position.sub(metrics.center);
   pivot.add(model.group);
 
   const hemi = new THREE.HemisphereLight(0x7d90a8, 0x1a110c, 0.95);
@@ -727,13 +756,16 @@ function createMiniScene(mats) {
   scene.add(warm);
   scene.add(warm.target);
 
-  // 球底座，给模型一个落点
+  // 球底座：底板也是转台的子节点，顶面与建筑底面贴合，半径覆盖旋转圆盘
+  const floorTop = metrics.box.min.y - FLOOR_GAP;
+  const baseR = Math.max(42, metrics.radius + 1.5);
   const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(42, 44, 0.5, 48),
+    new THREE.CylinderGeometry(baseR, baseR + 2, 0.5, 48),
     new THREE.MeshStandardMaterial({ color: 0x100b08, roughness: 0.75, metalness: 0.1 })
   );
-  base.position.set(0, 0.1, -31);
-  scene.add(base);
+  base.position.set(0, floorTop - 0.25 - metrics.center.y, 0);
+  base.name = 'orbBase';
+  pivot.add(base);
 
   // 玩家位置：一小团暖白火光，始终朝相机呈现
   const marker = new THREE.Group();
@@ -753,9 +785,30 @@ function createMiniScene(mats) {
 
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 400);
   camera.position.set(52, 54, 96);
-  camera.lookAt(0, 10, -30);
+  const look = metrics.center.clone();
+  look.y += 1.5;
+  camera.lookAt(look);
 
-  return { scene, camera, pivot, model, marker, halo, core };
+  /* 「跟着走」视点：与主场景同 FOV，挂在 scene 根下，不受转台 pivot
+     旋转影响。位置与朝向由 tour.follow 每帧硬同步，俯仰恒为 0。 */
+  const followCamera = new THREE.PerspectiveCamera(58, 1, 0.08, 400);
+  followCamera.rotation.order = 'YXZ';
+  followCamera.position.set(0, 1.64, -3);
+  scene.add(followCamera);
+  // 缩微模型只布了外部天光/主光，视点进到建筑内部会是一片黑。
+  // 给跟随相机挂一盏暖色头灯（只在跟随态点亮），沿途体块才看得出来。
+  const headLamp = new THREE.PointLight(0xffd8a8, 2.8, 34, 1.3);
+  headLamp.position.set(0, 0.55, 0.15);
+  followCamera.add(headLamp);
+  // 跟随态补光：建筑内壁原本几乎无光，只在跟随态点亮
+  const followAmbient = new THREE.AmbientLight(0xffd2a0, 0.85);
+  followAmbient.visible = false;
+  scene.add(followAmbient);
+
+  return {
+    scene, camera, followCamera, headLamp, followAmbient, xray, pivot, model, marker,
+    halo, core, base, center: metrics.center, metrics
+  };
 }
 
 /* ---------- 鸟瞰台场景 ---------- */
@@ -764,8 +817,14 @@ function createStageScene(mats, quality) {
   scene.fog = new THREE.FogExp2(0x0a0806, 0.0048);
 
   const model = buildMiniModel(mats, true);
+  const xray = createXray(model);
+  // 与球内一致：枢轴落在建筑几何中心，模型反向平移回原位，
+  // 台面、铜圈、接触暗部全部挂到同一个转台组，绕轴旋转时相对变换恒定
+  const metrics = measureModel(model.group);
   const pivot = new THREE.Group();
+  pivot.position.copy(metrics.center);
   pivot.add(model.group);
+  model.group.position.sub(metrics.center);
   scene.add(pivot);
 
   /* 木台：深色台面 + 接触暗部 + 一圈细铜线 */
@@ -774,19 +833,21 @@ function createStageScene(mats, quality) {
     roughness: 0.58,
     metalness: 0.12
   });
-  const table = new THREE.Mesh(new THREE.CircleGeometry(43, 64), tableMat);
+  const tableR = Math.max(43, metrics.radius + 1.5);
+  const tableY = metrics.box.min.y - FLOOR_GAP;
+  const table = new THREE.Mesh(new THREE.CircleGeometry(tableR, 64), tableMat);
   table.rotation.x = -Math.PI / 2;
-  table.position.set(0, -0.12, -28);
+  table.position.set(0, tableY - metrics.center.y, 0);
   table.receiveShadow = quality.tier === 'full';
-  scene.add(table);
+  pivot.add(table);
 
   const tableRing = new THREE.Mesh(
-    new THREE.TorusGeometry(42.6, 0.22, 8, 96),
+    new THREE.TorusGeometry(tableR - 0.4, 0.22, 8, 96),
     new THREE.MeshStandardMaterial({ color: 0x7a5a30, roughness: 0.45, metalness: 0.6 })
   );
   tableRing.rotation.x = Math.PI / 2;
-  tableRing.position.set(0, 0.02, -28);
-  scene.add(tableRing);
+  tableRing.position.set(0, tableY + 0.14 - metrics.center.y, 0);
+  pivot.add(tableRing);
 
   const shadowMat = new THREE.MeshBasicMaterial({
     map: mats.glowMap,
@@ -795,10 +856,10 @@ function createStageScene(mats, quality) {
     opacity: 0.45,
     depthWrite: false
   });
-  const contact = new THREE.Mesh(new THREE.PlaneGeometry(48, 82), shadowMat);
+  const contact = new THREE.Mesh(new THREE.CircleGeometry(tableR - 1.2, 48), shadowMat);
   contact.rotation.x = -Math.PI / 2;
-  contact.position.set(0, 0.03, -28);
-  scene.add(contact);
+  contact.position.set(0, tableY + 0.03 - metrics.center.y, 0);
+  pivot.add(contact);
 
   /* 灯光：冷天光 + 暖室内，窗带自发光 */
   const hemi = new THREE.HemisphereLight(0x8094ac, 0x160f0b, 1.0);
@@ -828,7 +889,7 @@ function createStageScene(mats, quality) {
   scene.add(rim.target);
 
   if (quality.tier === 'full') {
-    pivot.traverse((o) => {
+    model.group.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
@@ -964,12 +1025,34 @@ function createStageScene(mats, quality) {
 
   const camera = new THREE.PerspectiveCamera(31, 1, 0.2, 500);
 
+  // 鸟瞰台的「跟着走」视点：与玻璃球用同一套参数，行为一致
+  const followCamera = new THREE.PerspectiveCamera(
+    58, window.innerWidth / Math.max(1, window.innerHeight), 0.08, 400
+  );
+  followCamera.rotation.order = 'YXZ';
+  followCamera.position.set(0, 1.64, -3);
+  scene.add(followCamera);
+  const headLamp = new THREE.PointLight(0xffd8a8, 2.8, 34, 1.3);
+  headLamp.position.set(0, 0.55, 0.15);
+  followCamera.add(headLamp);
+  const followAmbient = new THREE.AmbientLight(0xffd2a0, 0.85);
+  followAmbient.visible = false;
+  scene.add(followAmbient);
+
   return {
     scene,
     camera,
+    followCamera,
+    headLamp,
+    followAmbient,
+    xray,
     pivot,
     model,
     table,
+    tableRing,
+    contact,
+    center: metrics.center,
+    metrics,
     anchors,
     hotspots,
     hitMeshes,
@@ -978,6 +1061,93 @@ function createStageScene(mats, quality) {
     cutPlane,
     cutGroup
   };
+}
+
+/* ---------- 跟随态的路线光带 ----------
+   视点本身严格落在路径采样点上；这条线只是把「从哪儿走到哪儿、还剩多少、
+   朝哪边走」画出来：走过的段压暗，前方段发亮。挂在 scene 根下（不受
+   转台 pivot 影响），depthTest=false 保证在建筑内部也看得见。 */
+const ROUTE_SEGMENTS = 120;
+const ROUTE_DONE = new THREE.Color(0x6b4a2a);
+const ROUTE_AHEAD = new THREE.Color(0xffd9a0);
+function createRouteLine(scene) {
+  const geo = new THREE.BufferGeometry();
+  const n = ROUTE_SEGMENTS + 1;
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * n), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(3 * n), 3));
+  const mat = new THREE.LineBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0.92,
+    depthTest: false, depthWrite: false
+  });
+  const line = new THREE.Line(geo, mat);
+  line.renderOrder = 12;
+  line.frustumCulled = false;
+  line.visible = false;
+  line.userData.path = null;
+  scene.add(line);
+  return line;
+}
+
+/* 跟随态 X 光：缩微模型是实心体块，没有内部空间，视点落在路径点上
+   会被整块包在墙里，只看到一面深棕内壁。跟随态把模型材质临时切成
+   低不透明度的线框，既能看穿建筑，又保留结构轮廓；自由查看时还原。
+   材质都是 buildMiniModel 内部新建的，不与主场景共享。 */
+function createXray(model) {
+  const saved = [];
+  const seen = new Set();
+  model.group.traverse((o) => {
+    if (!o.isMesh) return;
+    const ms = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of ms) {
+      if (!m || seen.has(m)) continue;
+      seen.add(m);
+      saved.push({
+        m, transparent: m.transparent, opacity: m.opacity,
+        depthWrite: m.depthWrite, side: m.side, wireframe: !!m.wireframe
+      });
+    }
+  });
+  let applied = false;
+  return {
+    materials: saved.length,
+    set(on) {
+      if (on === applied) return;
+      applied = on;
+      for (const s of saved) {
+        s.m.transparent = on ? true : s.transparent;
+        s.m.opacity = on ? 0.5 : s.opacity;
+        s.m.depthWrite = on ? false : s.depthWrite;
+        s.m.side = on ? THREE.DoubleSide : s.side;
+        s.m.wireframe = on ? true : s.wireframe;
+        s.m.needsUpdate = true;
+      }
+    }
+  };
+}
+
+const _routePt = new THREE.Vector3();
+function fillRouteLine(line, path, u) {
+  if (!path) return;
+  if (line.userData.path !== path) {
+    const pos = line.geometry.attributes.position.array;
+    for (let i = 0; i <= ROUTE_SEGMENTS; i++) {
+      path.getPointAt(i / ROUTE_SEGMENTS, _routePt);
+      pos[i * 3] = _routePt.x;
+      pos[i * 3 + 1] = _routePt.y - 0.28;  // 压到脚下当导轨，固定俯角下正好在视野里
+      pos[i * 3 + 2] = _routePt.z;
+    }
+    line.geometry.attributes.position.needsUpdate = true;
+    line.geometry.computeBoundingSphere();
+    line.userData.path = path;
+  }
+  const col = line.geometry.attributes.color.array;
+  for (let i = 0; i <= ROUTE_SEGMENTS; i++) {
+    const c = i / ROUTE_SEGMENTS <= u ? ROUTE_DONE : ROUTE_AHEAD;
+    col[i * 3] = c.r;
+    col[i * 3 + 1] = c.g;
+    col[i * 3 + 2] = c.b;
+  }
+  line.geometry.attributes.color.needsUpdate = true;
 }
 
 /* ---------- 空间亮度：当前最亮，离开后缓慢衰减 ---------- */
@@ -1047,7 +1217,9 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
   miniRenderer.toneMappingExposure = 1.3;
   glassEl.appendChild(miniRenderer.domElement);
   const miniLevels = createLevels();
+  const miniRoute = createRouteLine(mini.scene);
   let miniAccum = 0;
+  let miniRenders = 0;
   let pivotYaw = 0;
 
   /* ---------- 球内模型：拖动自由旋转 + 松手惯性 ---------- */
@@ -1062,10 +1234,23 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
   let lastPlace = null;
   const MINI_PITCH_LIMIT = 0.52;
 
+  /* ---------- 跟随 vs 自由查看：玻璃球与鸟瞰台共用同一份状态 ----------
+     行走是自动的，拖动是查看用的：用户一拖动就暂停跟随（freeView=true），
+     松手 1.2s 后恢复；方位盘可一键立即恢复。
+     orbClock 由 update(dt) 累加，与 updateTweens(dt) 同源，逐帧驱动
+     验收时也能精确复现恢复时刻，不依赖真实墙钟。 */
+  let freeView = false;
+  let resumeAt = -1;
+  let orbClock = 0;
+  let wasTraveling = false;
+  const RESUME_DELAY = 1.2;
+
   function resetMiniView() {
-    // 方位盘复位：短过渡回到自动跟随，不做瞬切
+    // 方位盘复位：立即回到自动跟随，不做瞬切
     resetting = true;
     followPause = false;
+    freeView = false;
+    resumeAt = -1;
     yawVel = 0;
     pitchVel = 0;
   }
@@ -1088,6 +1273,9 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     if (drag.moved < 4) return;
     root.setPointerCapture?.(e.pointerId);
     followPause = true;
+    // 拖动查看优先：暂停自动跟随，松手后再按 RESUME_DELAY 恢复
+    freeView = true;
+    resumeAt = -1;
     const k = 0.0062;
     manualYaw -= dx * k;
     manualPitch = THREE.MathUtils.clamp(manualPitch - dy * k * 0.85, -MINI_PITCH_LIMIT, MINI_PITCH_LIMIT);
@@ -1103,6 +1291,7 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     // 拖过就不算点击：避免松手顺手展开鸟瞰台
     if (moved >= 4) {
       suppressClick = true;
+      resumeAt = orbClock + RESUME_DELAY;
       setTimeout(() => { suppressClick = false; }, 60);
     }
   }
@@ -1162,6 +1351,7 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
 
     const scene = createStageScene(mats, quality);
     const levels = createLevels();
+    const routeLine = createRouteLine(scene.scene);
 
     const state = {
       root: stageEl,
@@ -1211,6 +1401,8 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
       renderer.setSize(w, h, false);
       scene.camera.aspect = w / h;
       scene.camera.updateProjectionMatrix();
+      scene.followCamera.aspect = w / Math.max(1, h);
+      scene.followCamera.updateProjectionMatrix();
       positionCamera();
     }
 
@@ -1337,6 +1529,8 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
         state.moved += Math.hypot(dx, dy);
 
         if (state.mode === 'pinch' && state.pointers.size === 2) {
+          freeView = true;
+          resumeAt = -1;
           const pts = [...state.pointers.values()];
           const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
           if (state.pinchDist > 0) {
@@ -1353,6 +1547,8 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
             const dead = e.pointerType === 'touch' ? 6 : 2;
             if (state.moved < dead) return;
             state.engaged = true;
+            freeView = true;
+            resumeAt = -1;
           }
           state.tTheta -= dx * 0.0052;
           state.tPhi = THREE.MathUtils.clamp(state.tPhi - dy * 0.0042, 0.2, 1.42);
@@ -1381,6 +1577,7 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     function endPointer(e) {
       const p = state.pointers.get(e.pointerId);
       if (!p) return;
+      const dragged = state.moved >= 7;
       state.pointers.delete(e.pointerId);
       if (state.pointers.size === 1) {
         state.mode = 'rotate';
@@ -1393,6 +1590,7 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
         const data = pick(e.clientX, e.clientY);
         activate(data);
       }
+      if (dragged && state.pointers.size === 0) resumeAt = orbClock + RESUME_DELAY;
     }
     canvas.addEventListener('pointerup', endPointer);
     canvas.addEventListener('pointercancel', endPointer);
@@ -1427,6 +1625,13 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     stage = {
       ...state,
       el: stageEl,
+      // 与 mini.followCamera 对称：scene 是 createStageScene 的返回对象，
+      // 跟随视点挂在它上面，这里提到 stage 上供 update/render 直接使用
+      followCamera: scene.followCamera,
+      headLamp: scene.headLamp,
+      followAmbient: scene.followAmbient,
+      xray: scene.xray,
+      routeLine,
       resize,
       applyPreset,
       setCut,
@@ -1478,8 +1683,8 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
           a.group.scale.setScalar(1 + 0.06 * lv);
         }
       },
-      render() {
-        renderer.render(scene.scene, scene.camera);
+      render(cam) {
+        renderer.render(scene.scene, cam || scene.camera);
       }
     };
 
@@ -1520,8 +1725,70 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
 
   /* ---------- 每帧 ---------- */
   function update(dt, info) {
+    orbClock += dt;
     const current = SPACES.find((s) => s.id === info.placeId) || SPACES[0];
     placeEl.textContent = current.label;
+
+    /* 球不可见就别算也别画。这三种情况下 CSS 已经把 .orb-root 的 opacity 压到 0：
+       落地页（loading/entrance）、内容浮层盖住（data-overlay=open）、页面切后台。
+       此前这里照旧每帧积分拖拽惯性、每 1/30s 提交一次约 200 次 draw call 的
+       缩微场景渲染——用户一个像素都看不见。鸟瞰台展开时 openFlag 为真，
+       走下面的 stage 分支，不受这一条影响。 */
+    const phase = document.body.dataset.phase;
+    const visible =
+      (phase === 'explore' || phase === 'cinematic') &&
+      document.body.dataset.overlay !== 'open' &&
+      !document.hidden;
+    if (!visible && !openFlag) {
+      // 位置/朝向的跟随关系照旧记下来，重新可见时不会因为「换了空间」而抖一下
+      lastPlace = info.placeId;
+      wasTraveling = !!(info.follow && info.follow.traveling);
+      freeView = false;
+      resumeAt = -1;
+      return;
+    }
+
+    const follow = info.follow;
+    const traveling = !!(follow && follow.traveling);
+    // 新一次转场开始：无论上次是否停留在自由查看，都回到自动跟随
+    if (traveling && !wasTraveling) {
+      freeView = false;
+      resumeAt = -1;
+    }
+    wasTraveling = traveling;
+    // 松手 1.2s 后恢复自动跟随（玻璃球与鸟瞰台共用同一状态）
+    if (freeView && resumeAt >= 0 && orbClock >= resumeAt) {
+      freeView = false;
+      resumeAt = -1;
+    }
+
+    // 每帧都同步，即使正在自由查看：恢复时无需追赶、不会跳变或漂移。
+    // 两套场景取同一个 point/yaw，放大态与缩小态行为完全一致。
+    const followOn = !!(follow && follow.enabled) && !freeView;
+    if (follow && follow.enabled) {
+      mini.followCamera.position.copy(follow.point);
+      mini.followCamera.rotation.set(follow.pitch, follow.yaw, 0, 'YXZ');
+      mini.followCamera.updateMatrixWorld(true);
+      if (stage) {
+        stage.followCamera.position.copy(follow.point);
+        stage.followCamera.rotation.set(follow.pitch, follow.yaw, 0, 'YXZ');
+        stage.followCamera.updateMatrixWorld(true);
+      }
+    }
+
+    // 路线光带 / 头灯只在跟随态启用，自由查看时保持原来的展示外观
+    miniRoute.visible = followOn;
+    mini.headLamp.visible = followOn;
+    mini.followAmbient.visible = followOn;
+    mini.xray.set(followOn);
+    if (followOn && follow.path) fillRouteLine(miniRoute, follow.path, follow.u);
+    if (stage) {
+      stage.routeLine.visible = followOn;
+      stage.headLamp.visible = followOn;
+      stage.followAmbient.visible = followOn;
+      stage.xray.set(followOn);
+      if (followOn && follow.path) fillRouteLine(stage.routeLine, follow.path, follow.u);
+    }
 
     // 换空间：手动偏转收回，自动跟随恢复
     if (lastPlace !== info.placeId) {
@@ -1530,60 +1797,77 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
       followPause = false;
     }
 
-    // 球内模型反向缓转：只在未手动接管时跟随视线
-    const targetYaw = -info.yaw * 0.72 - Math.atan2(info.x || 0, (info.z || 0) + 28) * 0.22;
-    if (!followPause) pivotYaw += (targetYaw - pivotYaw) * (1 - Math.exp(-3.2 * dt));
+    if (followOn) {
+      // 跟随态：缩微模型必须与主场景坐标一一对应，把转台偏转平滑收回 0。
+      // 只影响模型外观，不动视点（视点严格在路径采样点上）。
+      const k = 1 - Math.exp(-9 * dt);
+      pivotYaw -= pivotYaw * k;
+      manualYaw -= manualYaw * k;
+      manualPitch -= manualPitch * k;
+      yawVel = 0;
+      pitchVel = 0;
+      resetting = false;
+      followPause = false;
+    } else {
+      // 球内模型反向缓转：只在未手动接管时跟随视线
+      const targetYaw = -info.yaw * 0.72 - Math.atan2(info.x || 0, (info.z || 0) + 28) * 0.22;
+      if (!followPause) pivotYaw += (targetYaw - pivotYaw) * (1 - Math.exp(-3.2 * dt));
 
-    // 松手后的惯性：一路滑停，不回正
-    if (!drag) {
-      manualYaw += yawVel * dt;
-      manualPitch += pitchVel * dt;
-      const damp = Math.exp(-3.4 * dt);
-      yawVel *= damp;
-      pitchVel *= damp;
-      if (Math.abs(yawVel) < 0.02) yawVel = 0;
-      if (Math.abs(pitchVel) < 0.02) pitchVel = 0;
-    }
-    if (manualPitch > MINI_PITCH_LIMIT) { manualPitch = MINI_PITCH_LIMIT; pitchVel = 0; }
-    if (manualPitch < -MINI_PITCH_LIMIT) { manualPitch = -MINI_PITCH_LIMIT; pitchVel = 0; }
+      // 松手后的惯性：一路滑停，不回正
+      if (!drag) {
+        manualYaw += yawVel * dt;
+        manualPitch += pitchVel * dt;
+        const damp = Math.exp(-3.4 * dt);
+        yawVel *= damp;
+        pitchVel *= damp;
+        if (Math.abs(yawVel) < 0.02) yawVel = 0;
+        if (Math.abs(pitchVel) < 0.02) pitchVel = 0;
+      }
+      if (manualPitch > MINI_PITCH_LIMIT) { manualPitch = MINI_PITCH_LIMIT; pitchVel = 0; }
+      if (manualPitch < -MINI_PITCH_LIMIT) { manualPitch = -MINI_PITCH_LIMIT; pitchVel = 0; }
 
-    if (resetting) {
-      const k = 1 - Math.exp(-7.5 * dt);
-      manualYaw += -manualYaw * k;
-      manualPitch += -manualPitch * k;
-      if (Math.abs(manualYaw) < 0.004 && Math.abs(manualPitch) < 0.004) {
-        manualYaw = 0;
-        manualPitch = 0;
-        resetting = false;
+      if (resetting) {
+        const k = 1 - Math.exp(-7.5 * dt);
+        manualYaw += -manualYaw * k;
+        manualPitch += -manualPitch * k;
+        if (Math.abs(manualYaw) < 0.004 && Math.abs(manualPitch) < 0.004) {
+          manualYaw = 0;
+          manualPitch = 0;
+          resetting = false;
+        }
       }
     }
 
     mini.pivot.rotation.y = pivotYaw + manualYaw;
     mini.pivot.rotation.x = manualPitch;
-    needleEl.style.transform = `translate(-50%, -50%) rotate(${(-info.yaw * 180 / Math.PI).toFixed(1)}deg)`;
+    // 方位针指向「正在朝哪边走」：跟随态取路径切线，自由查看取主视线
+    const shownYaw = followOn ? follow.yaw : info.yaw;
+    needleEl.style.transform = `translate(-50%, -50%) rotate(${(-shownYaw * 180 / Math.PI).toFixed(1)}deg)`;
 
     updateLevels(mini, miniLevels, info.placeId, dt);
 
     const mark = current.anchor || current.mark;
-    if (mark) mini.marker.position.set(mark[0], mark[1] - MINI_PIVOT.y, mark[2] - MINI_PIVOT.z);
+    if (mark) mini.marker.position.set(mark[0] - mini.center.x, mark[1] - mini.center.y, mark[2] - mini.center.z);
     const level = miniLevels[info.placeId] ?? 0.06;
     const pulse = 1 + Math.sin(info.time * 2.0) * 0.09;
     mini.core.scale.setScalar((0.85 + 0.5 * level) * pulse);
     mini.halo.material.opacity = 0.45 + 0.5 * level;
     mini.halo.scale.setScalar((3.4 + 2.2 * level) * pulse);
 
-    // 玻璃球暂停渲染：鸟瞰台展开、内容浮层打开或页面隐藏时
-    if (!openFlag && !document.hidden && document.body.dataset.overlay !== 'open') {
+    // 玻璃球暂停渲染：鸟瞰台展开、内容浮层打开或页面隐藏时。
+    // 自动跟随用 followCamera（沿路径推进），自由查看用原来的远景展示相机。
+    if (!openFlag) {
       miniAccum += dt;
       if (miniAccum > 1 / 30) {
         miniAccum = 0;
-        miniRenderer.render(mini.scene, mini.camera);
+        miniRenderer.render(mini.scene, followOn ? mini.followCamera : mini.camera);
+        miniRenders++;
       }
     }
 
     if (openFlag && stage) {
       stage.update(dt, info.placeId, info.time);
-      stage.render();
+      stage.render(followOn ? stage.followCamera : null);
     }
   }
 
@@ -1592,7 +1876,14 @@ export function createOrb({ quality, mats, onEnter, onOpenChange }) {
     update,
     open,
     close,
-    isOpen: () => openFlag
+    isOpen: () => openFlag,
+    // 验收接口：只读暴露两套场景的变换与几何、以及跟随状态
+    inspect: () => ({ mini, stage, freeView, orbClock, resumeAt, miniRenders }),
+    // 验收接口：驱动「拖动暂停 / 延时恢复」这条状态机，避免依赖合成指针事件
+    debugFreeView: (on, resumeIn = -1) => {
+      freeView = !!on;
+      resumeAt = resumeIn >= 0 ? orbClock + resumeIn : -1;
+    }
   };
 }
 

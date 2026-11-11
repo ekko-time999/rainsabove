@@ -569,6 +569,18 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
   floor.receiveShadow = true;
   group.add(floor);
 
+  /* 门洞门槛：上层走廊楼板到 x=-2.26 为止，厅内地面从 x=-2.62 起，
+     中间 0.36m 是空的（细缝探针 14/154 命中空档）。补一块 1cm 门槛板：
+     板高 0.10m，中心比楼面低 4cm，顶面正好落在 LEVEL+0.010
+     （比厅内地毯 +0.004 高 6mm、比走廊楼板 +0 高 1cm），
+     既读作门槛，也不会造成 >2cm 的高差突变或与两侧楼板共面 z-fighting。 */
+  const threshold = new THREE.Mesh(
+    new THREE.BoxGeometry(0.42, 0.10, 0.86), mats.wood
+  );
+  threshold.position.set(-2.44, LEVEL - 0.040, DOOR_Z);
+  threshold.receiveShadow = true;
+  group.add(threshold);
+
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(-(X0 - X1), Z0 - Z1), wallMat);
   ceil.rotation.x = Math.PI / 2;
   ceil.position.set(MIDX, CEIL, MIDZ);
@@ -643,7 +655,11 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
   /* 放映窗：只做一圈木框与金内衬，窗洞本身透空，机房里的机身从窗内透出剪影 */
   const PW = 0.78;   // 窗洞净宽（沿 z）
   const PH = 0.50;   // 窗洞净高
-  const PCY = LEVEL + 2.90;
+  /* 机房底板随顶层楼板由 6.64 抬到 6.995（板底 = 7.10-0.105），
+     窗洞与机身必须一起上移，否则窗洞下半截会落到机房地板以下。 */
+  const BOOTH_FLOOR = 6.995;
+  const RIG_Y = LEVEL + 3.415;        // 7.445，镜头轴线
+  const PCY = RIG_Y;                  // 窗洞与镜头同轴
   const PZ = -25.6;  // 窗洞与机房同心
   wood.add(0.16, 0.09, PW + 0.26, X1 - 0.14, PCY + PH / 2 + 0.035, PZ);
   wood.add(0.16, 0.09, PW + 0.26, X1 - 0.14, PCY - PH / 2 - 0.035, PZ);
@@ -670,10 +686,10 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
     doorHole.closePath();
     wallShape.holes.push(doorHole);
     const portHole = new THREE.Path();
-    portHole.moveTo(-25.99, 2.65);
-    portHole.lineTo(-25.21, 2.65);
-    portHole.lineTo(-25.21, 3.15);
-    portHole.lineTo(-25.99, 3.15);
+    portHole.moveTo(-25.99, PCY - PH / 2 - LEVEL);
+    portHole.lineTo(-25.21, PCY - PH / 2 - LEVEL);
+    portHole.lineTo(-25.21, PCY + PH / 2 - LEVEL);
+    portHole.lineTo(-25.99, PCY + PH / 2 - LEVEL);
     portHole.closePath();
     wallShape.holes.push(portHole);
     const nearWall = new THREE.Mesh(new THREE.ShapeGeometry(wallShape), wallMat);
@@ -702,7 +718,7 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
   const BX1 = -2.02;       // 走廊墙内侧，进深 0.6m
   const BZ0 = -26.4;
   const BZ1 = -24.8;
-  const BY0 = LEVEL + 2.57;
+  const BY0 = BOOTH_FLOOR;    // 机房底板板底 6.995 = 顶层楼板 7.10 - 0.105
   const BY1 = CEIL - 0.08;
   const boothMat = darkPlaster(mats, 0x17100d);
   const bmz = (BZ0 + BZ1) / 2;
@@ -725,26 +741,26 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
   }
   // 放映机机身与镜头剪影：只有轮廓，靠窗内的一点暖光勾出来
   const rig = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.28, 0.44), boothMat);
-  rig.position.set(BX0 + 0.34, LEVEL + 3.02, MIDZ);
+  rig.position.set(BX0 + 0.34, RIG_Y, MIDZ);
   booth.add(rig);
   const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.16, 10), boothMat);
   lens.rotation.z = Math.PI / 2;
-  lens.position.set(BX0 + 0.14, LEVEL + 3.02, MIDZ);
+  lens.position.set(BX0 + 0.14, RIG_Y, MIDZ);
   booth.add(lens);
   // 镜头铜圈与玻璃面：从厅内抬头能认出这是一台放映机，而不只是黑盒子
-  brass.add(0.03, 0.12, 0.12, BX0 + 0.055, LEVEL + 3.02, MIDZ);
-  brass.add(0.02, 0.15, 0.15, BX0 + 0.085, LEVEL + 3.02, MIDZ);
+  brass.add(0.03, 0.12, 0.12, BX0 + 0.055, RIG_Y, MIDZ);
+  brass.add(0.02, 0.15, 0.15, BX0 + 0.085, RIG_Y, MIDZ);
   const boothLensGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.012, 14).rotateZ(Math.PI / 2)
-    .translate(BX0 + 0.045, LEVEL + 3.02, MIDZ);
+    .translate(BX0 + 0.045, RIG_Y, MIDZ);
   group.add(new THREE.Mesh(boothLensGeo, lensMat));
   const rew = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 12), boothMat);
   rew.rotation.x = Math.PI / 2;
-  rew.position.set(BX1 - 0.2, LEVEL + 2.95, MIDZ - 0.4);
+  rew.position.set(BX1 - 0.2, RIG_Y - 0.05, MIDZ - 0.4);
   booth.add(rew);
   group.add(booth);
   // 放映机向银幕的一束弱光：只有光斑，不做任何可辨认的几何光锥
   const beam = new THREE.SpotLight(0xffd9a8, 16, 9, 0.16, 0.85, 2);
-  beam.position.set(BX0 + 0.16, LEVEL + 3.02, MIDZ);
+  beam.position.set(BX0 + 0.16, RIG_Y, MIDZ);
   beam.target.position.set(X0 + 0.2, LEVEL + 1.55, MIDZ);
   group.add(beam);
   group.add(beam.target);
@@ -795,9 +811,9 @@ function buildScreening(scene, mats, full, glows, seatGeo) {
   }
   // 机身侧面的一条暖光缝，勾出放映机的轮廓
   const boothGlow = new THREE.PointLight(0xffb877, 2.2, 2.2, 2);
-  boothGlow.position.set(BX0 + 0.3, LEVEL + 3.05, MIDZ);
+  boothGlow.position.set(BX0 + 0.3, RIG_Y + 0.28, MIDZ);
   group.add(boothGlow);
-  glows.push(addGlowSprite(mats, group, BX0 + 0.2, LEVEL + 3.05, MIDZ, 0.7, 0.16));
+  glows.push(addGlowSprite(mats, group, BX0 + 0.2, RIG_Y + 0.28, MIDZ, 0.7, 0.16));
 
   /* 银幕两侧的遮光帘：深红丝绒，落到地面 */
   for (const dz of [-2.05, 2.05]) {

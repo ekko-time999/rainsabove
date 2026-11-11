@@ -590,72 +590,70 @@ body[data-phase="explore"] .hud {
   opacity: 0.7;
   transform: none;
 }
-.next-stop {
+/* 方位入口：按相机水平朝向把可达场景分到前/左/右/后，同一方位并列多个 */
+.dir-nav {
   position: absolute;
   left: 50%;
   bottom: clamp(104px, 15vh, 158px);
   transform: translate(-50%) translateY(10px);
+  width: max-content;
+  max-width: min(700px, 88vw);
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 17px 11px 20px;
-  border: 1px solid rgba(205, 174, 118, 0.26);
-  background: #09060580;
-  color: var(--paper);
-  border-radius: 1px;
-  cursor: pointer;
-  pointer-events: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
   opacity: 0;
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  pointer-events: none;
   transition:
     opacity 0.7s var(--ease),
-    transform 0.7s var(--ease),
-    border-color 0.5s var(--ease),
-    background 0.5s var(--ease);
+    transform 0.7s var(--ease);
 }
-.next-stop.is-on {
+.dir-nav.is-on {
   opacity: 1;
   transform: translate(-50%) translateY(0);
   pointer-events: auto;
 }
-.next-kicker {
-  font-family: var(--font-display);
-  font-size: 9px;
-  letter-spacing: 0.3em;
-  color: var(--gold-dim);
+.dir-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(205, 174, 118, 0.24);
+  background: #09060580;
+  color: var(--paper);
+  border-radius: 1px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition:
+    border-color 0.4s var(--ease),
+    background 0.4s var(--ease),
+    transform 0.2s var(--ease);
 }
-.next-label {
-  font-family: var(--font-display);
-  font-size: 13px;
-  letter-spacing: 0.26em;
-  color: var(--gold-bright);
-}
-.next-stop svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: var(--gold);
-  stroke-width: 1.1;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.5s var(--ease);
-}
-.next-stop:hover {
+.dir-btn:hover {
   border-color: #e6c98bb3;
   background: #cdae761a;
-  transform: translate(-50%) scale(1.02);
 }
-.next-stop:hover svg {
-  transform: translate(4px);
+.dir-btn:active {
+  transform: scale(0.97);
 }
-.next-stop:active {
-  transform: translate(-50%) scale(0.97);
-  transition-duration: 0.2s;
-}
-.next-stop:focus-visible {
+.dir-btn:focus-visible {
   outline: 1px solid var(--gold);
-  outline-offset: 5px;
+  outline-offset: 4px;
+}
+.dir-where {
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--gold-dim);
+}
+.dir-name {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: var(--gold-bright);
 }
 .caption {
   position: absolute;
@@ -709,16 +707,19 @@ body[data-phase="explore"] .dpad {
   .caption {
     bottom: clamp(178px, 24vh, 210px);
   }
-  .next-stop {
-    bottom: clamp(238px, 28vh, 268px);
-    padding: 10px 14px 10px 16px;
-    gap: 9px;
+  .dir-nav {
+    bottom: clamp(224px, 27vh, 254px);
+    max-width: 92vw;
   }
-  .next-kicker {
-    display: none;
+  .dir-btn {
+    padding: 6px 10px;
+    gap: 5px;
   }
-  .next-label {
-    font-size: 12px;
+  .dir-where {
+    font-size: 8.5px;
+  }
+  .dir-name {
+    font-size: 11px;
   }
 }
 .pad {
@@ -839,7 +840,7 @@ body[data-phase="explore"] .dpad {
 .enter-stop {
   position: absolute;
   left: 50%;
-  bottom: clamp(166px, 23vh, 224px);
+  bottom: clamp(212px, 30vh, 280px);
   transform: translate(-50%) translateY(10px);
   display: flex;
   align-items: center;
@@ -989,50 +990,8 @@ body[data-phase="explore"] .dpad {
   outline: 1px solid var(--gold);
   outline-offset: 3px;
 }
-.programme-btn {
-  position: fixed;
-  right: clamp(16px, 3.2vw, 34px);
-  bottom: clamp(18px, 3vh, 30px);
-  z-index: 14;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 13px;
-  border: 1px solid rgba(205, 174, 118, 0.24);
-  background: #120b099e;
-  color: var(--gold);
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition:
-    opacity 0.4s var(--ease),
-    border-color 0.35s var(--ease),
-    color 0.35s var(--ease),
-    background 0.35s var(--ease);
-}
-.programme-btn svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-}
-.programme-btn:hover {
-  border-color: #e6c98b8c;
-  color: var(--gold-bright);
-  background: #1e120dc7;
-}
-.programme-btn:focus-visible {
-  outline: 1px solid var(--gold);
-  outline-offset: 4px;
-}
-body[data-overlay="open"] .programme-btn,
-body[data-orb="open"] .programme-btn {
-  opacity: 0;
-  pointer-events: none;
-}
+/* 原「节目单」按钮与 .orb-root 同在右下角、被球压住，已整块删除。
+   目录入口改由 .guide-btn「站点导览」承担（见下方），不留空规则。 */
 body[data-overlay="open"] .hud,
 body[data-overlay="open"] .brand,
 body[data-overlay="open"] .act,
@@ -1048,7 +1007,7 @@ body[data-overlay="open"] #scene canvas {
 }
 @media (hover: none), (pointer: coarse) {
   .enter-stop {
-    bottom: clamp(306px, 36vh, 350px);
+    bottom: clamp(318px, 38vh, 364px);
     padding: 10px 15px 10px 12px;
   }
   .enter-stop-kicker {
@@ -1094,8 +1053,10 @@ body[data-phase="explore"] .orb-root {
   transform: none;
 }
 body[data-phase="cinematic"] .orb-root {
-  opacity: 0;
-  pointer-events: none;
+  /* 转场期间球内视点沿路径推进，球必须保持可见且可拖动查看；
+     原来整颗淡出并禁用指针，玩家看不到"正在从哪儿走到哪儿"。 */
+  opacity: 0.94;
+  transform: none;
 }
 body[data-overlay="open"] .orb-root {
   opacity: 0 !important;
@@ -1668,7 +1629,7 @@ body[data-orb="open"] .brand,
 body[data-orb="open"] .act,
 body[data-orb="open"] .dpad,
 body[data-orb="open"] .caption,
-body[data-orb="open"] .next-stop,
+body[data-orb="open"] .dir-nav,
 body[data-orb="open"] .enter-stop {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -1826,10 +1787,15 @@ body[data-orb="open"] #scene canvas {
 .space-link.is-current .space-go {
   color: var(--gold-bright);
 }
+/* 节目单按钮删除后，「站点导览」成为常驻目录入口：桌面放到玻璃球左侧
+   （球右距 clamp(18px,3vw,34px)，球身约 134px，再留 16px 间隙）。
+   左下角本来就是 HUD 的当前站点指示 01/门厅/FOYER，不能占它的位。
+   竖屏媒体查询再把它放回右下（竖屏球在右上）。 */
 .guide-btn {
-  display: none;
+  display: inline-flex;
   position: fixed;
-  right: clamp(16px, 3.2vw, 34px);
+  left: auto;
+  right: calc(clamp(18px, 3vw, 34px) + 150px);
   bottom: clamp(18px, 3vh, 30px);
   z-index: 14;
   align-items: center;
@@ -1863,9 +1829,6 @@ body[data-orb="open"] #scene canvas {
   color: var(--gold-bright);
   background: #1e120dc7;
   outline: none;
-}
-.programme-btn {
-  pointer-events: auto;
 }
 body[data-overlay="open"] .guide-btn,
 body[data-orb="open"] .guide-btn {
@@ -1960,19 +1923,12 @@ body[data-orb="open"] .stage-tools {
   :root {
     --dock-b: calc(env(safe-area-inset-bottom) + 12px);
   }
-  #programme-btn,
   .guide-btn {
     display: inline-flex;
     bottom: var(--dock-b);
     padding: 9px 11px;
     font-size: 9px;
     letter-spacing: 0.18em;
-  }
-  #programme-btn {
-    left: 12px;
-    right: auto;
-  }
-  .guide-btn {
     right: 12px;
     left: auto;
   }
@@ -2010,24 +1966,29 @@ body[data-orb="open"] .stage-tools {
   .pad-right {
     grid-area: 2 / 3;
   }
-  .next-stop {
+  .dir-nav {
     left: 50%;
     right: auto;
-    bottom: calc(var(--dock-b) + 88px);
-    padding: 8px 12px;
-    gap: 8px;
+    bottom: calc(var(--dock-b) + 84px);
+    max-width: 92vw;
+    gap: 5px;
   }
-  .next-kicker {
-    display: none;
+  .dir-btn {
+    padding: 5px 8px;
+    gap: 4px;
   }
-  .next-label {
-    font-size: 11px;
-    letter-spacing: 0.2em;
+  .dir-where {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+  .dir-name {
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
   }
   .enter-stop {
     left: 50%;
     right: auto;
-    bottom: calc(var(--dock-b) + 134px);
+    bottom: calc(var(--dock-b) + 184px);
     padding: 8px 12px;
   }
   .enter-stop-key,
@@ -2037,7 +1998,7 @@ body[data-orb="open"] .stage-tools {
   .caption {
     left: 50%;
     right: auto;
-    bottom: calc(var(--dock-b) + 180px);
+    bottom: calc(var(--dock-b) + 238px);
     max-width: 86vw;
     font-size: 11px;
     letter-spacing: 0.2em;
@@ -2047,7 +2008,7 @@ body[data-orb="open"] .stage-tools {
   .hints {
     left: 12px;
     right: 12px;
-    bottom: calc(var(--dock-b) + 224px);
+    bottom: calc(var(--dock-b) + 276px);
     max-width: none;
     justify-content: flex-start;
   }
@@ -3467,5 +3428,89 @@ body[data-orb="open"] .stage-tools {
     z-index: 15;
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+/* ---------------- 预览标识条：仅 VITE_PREVIEW=1 的构建会创建这个节点 ----------------
+   位置取顶部中间：左侧是 brand、右侧是 ACT 与演出三钮、底部被 stop-card / hints /
+   dpad 占满，中间是唯一不会压住既有 HUD 的空区。纯 DOM 覆盖层，不进 3D 画布。 */
+.preview-bar {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + clamp(12px, 2vh, 22px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 5px 0 9px;
+  border: 1px solid rgba(205, 174, 118, 0.26);
+  border-radius: 999px;
+  background: rgba(7, 5, 4, 0.6);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+  color: rgba(233, 223, 205, 0.7);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.preview-bar[hidden] {
+  display: none;
+}
+.preview-bar-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--gold);
+  opacity: 0.8;
+  box-shadow: 0 0 7px rgba(205, 174, 118, 0.7);
+}
+.preview-bar-text {
+  padding-right: 1px;
+}
+.preview-bar-close {
+  pointer-events: auto;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(233, 223, 205, 0.45);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.2s var(--ease),
+    background 0.2s var(--ease);
+}
+.preview-bar-close:hover {
+  color: var(--paper);
+  background: rgba(233, 223, 205, 0.1);
+}
+/* 触摸设备：竖屏下 stage-tools 跑到左上（x12-132, y60-94）、dpad 水平居中
+   （390 宽时 x137-253）、guide-btn 贴右下，底部 0-92 与 797+ 都被占。
+   标识条落在 dpad 上沿之上：bottom = dpad 的 bottom(clamp16-26) + 其高度 76 + 8 间距。 */
+@media (hover: none), (pointer: coarse) {
+  .preview-bar {
+    top: calc(env(safe-area-inset-top, 0px) + clamp(52px, 7.4vh, 78px) + 40px);
+    left: clamp(14px, 4vw, 22px);
+    transform: none;
+  }
+}
+@media (max-width: 380px) {
+  .preview-bar {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    gap: 6px;
+    padding: 0 4px 0 8px;
   }
 }

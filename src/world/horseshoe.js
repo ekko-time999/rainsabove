@@ -5,6 +5,13 @@ import { HOUSE, RAKE, halfWidth, wallYaw, apsePoint, houseFloorY } from './plan.
 
 const WARM_GLOW = 0xffc48a;
 
+/* ---------- 二楼护栏统一标准 ----------
+   扶手中心 = 本层楼面 + 1.12m，扶手顶 = +1.15m（判据要求 >= 1.10m，留 5cm 余量）。
+   一律用 0.032m 细立柱（间距 <= 0.36m）+ 0.06m 细扶手，不做实栏板：
+   楼座看舞台的视线从柱间穿过，门厅拱洞也不会被读成一道过梁。
+   原来各处的 0.85 / 0.90 / 0.95 / 1.00m 全部按此收口。 */
+const GUARD = 1.12;
+
 /* ---------- 把一面带三座拱门的直墙弯成半圆弧墙 ---------- */
 function bentApseWall() {
   const R = HOUSE.APSE_R;
@@ -17,10 +24,14 @@ function bentApseWall() {
   shape.lineTo(-arcLen / 2, height);
   shape.closePath();
 
-  const doors = [-4.8, 0, 4.8];
-  const halfW = 1.3;
-  const spring = 4.3;
-  for (const cx of doors) {
+  // 中央拱门是上下两层共用的主门洞：门洞一直升到二楼环廊的吊顶（6.9m），
+  // 二楼楼座才有 >=2.87m 的净高与通透的回望视线。两侧门仍按一层尺度。
+  const doors = [
+    { cx: -4.8, halfW: 1.3, spring: 4.3 },
+    { cx: 4.8, halfW: 1.3, spring: 4.3 },
+    { cx: 0, halfW: 2.0, spring: 4.9 }
+  ];
+  for (const { cx, halfW, spring } of doors) {
     const hole = new THREE.Path();
     hole.moveTo(cx - halfW, 0);
     hole.lineTo(cx - halfW, spring);
@@ -46,7 +57,7 @@ function bentApseWall() {
     pos.setXYZ(i, r * Math.sin(a), y, HOUSE.TAIL + r * Math.cos(a));
   }
   geo.computeVertexNormals();
-  return { geo, doors, halfW, spring };
+  return { geo, doors };
 }
 
 function bendFlatGeometry(geo) {
@@ -175,14 +186,14 @@ export function buildHorseshoe({
   group.add(apseMesh);
 
   const ringGeos = [];
-  for (const cx of apse.doors) {
+  for (const { cx, halfW, spring } of apse.doors) {
     const band = new THREE.Shape();
-    const ro = apse.halfW + 0.19;
-    const ri = apse.halfW + 0.015;
+    const ro = halfW + 0.19;
+    const ri = halfW + 0.015;
     band.moveTo(cx - ro, 0);
-    band.absarc(cx, apse.spring, ro, Math.PI, 0, true);
+    band.absarc(cx, spring, ro, Math.PI, 0, true);
     band.lineTo(cx + ri, 0);
-    band.absarc(cx, apse.spring, ri, 0, Math.PI, false);
+    band.absarc(cx, spring, ri, 0, Math.PI, false);
     band.closePath();
     const bandGeo = new THREE.ExtrudeGeometry(band, {
       depth: 0.1,
@@ -279,8 +290,6 @@ export function buildHorseshoe({
   gold.add(12.4, 0.12, 0.22, 0, 8.42, -30.4);
 
   /* ---------- 三层包厢 ---------- */
-  const ACCESS_Z = -40.7;
-
   for (let tier = 0; tier < 3; tier++) {
     const y = HOUSE.TIER_Y[tier];
     const depth = 1.62 - tier * 0.1;
@@ -341,22 +350,21 @@ export function buildHorseshoe({
           gold.add(0.04, 1.34, 0.04, dbx, y + 0.8, dbz, f.yaw);
         }
 
-        // 弧形黄铜栏杆：面向观众厅一侧
+        // 弧形黄铜栏杆：面向观众厅一侧。48 间包厢一间不漏——
+        // 原来 tier===1 且 z≈ACCESS_Z 的两间被 railGap 整段跳过，
+        // 那是两处 4m 临空；包厢由后廊进出，前沿本就该有护栏。
         const railLX = depth;
-        const railGap = tier === 1 && Math.abs(z - ACCESS_Z) < 0.8;
-        if (!railGap) {
-          const bars = tier === 2 ? 4 : 5;
-          for (let k = 0; k < bars; k++) {
-            const lz = -boxW / 2 + 0.18 + k * (boxW - 0.36) / (bars - 1);
-            const [bx, bz] = place(f, railLX, lz);
-            gold.add(0.032, 0.78, 0.032, bx, y + 0.4, bz, f.yaw);
-          }
-          const [rx, rz] = place(f, railLX, 0);
-          gold.add(0.1, 0.055, boxW, rx, y + 0.84, rz, f.yaw);
-          goldDeep.add(0.09, 0.04, boxW, rx, y + 0.05, rz, f.yaw);
+        const bars = tier === 2 ? 4 : 5;
+        for (let k = 0; k < bars; k++) {
+          const lz = -boxW / 2 + 0.18 + k * (boxW - 0.36) / (bars - 1);
+          const [bx, bz] = place(f, railLX, lz);
+          gold.add(0.032, GUARD, 0.032, bx, y + GUARD / 2, bz, f.yaw);
         }
+        const [rx, rz] = place(f, railLX, 0);
+        gold.add(0.1, 0.06, boxW, rx, y + GUARD, rz, f.yaw);
+        goldDeep.add(0.09, 0.04, boxW, rx, y + 0.05, rz, f.yaw);
 
-        // 顶棚：由上一层楼板充当，层间净高 2.22/2.23m；顶层敞开
+        // 顶棚：由上一层楼板充当，层间净高 2.22/2.63m；顶层敞开
 
         // 隔墙壁灯：光晕统一收进一个 Points，只留一盏小铜座
         const [gx, gz] = place(f, depth - 0.16, boxW / 2 - 0.12);
@@ -384,7 +392,8 @@ export function buildHorseshoe({
 
   /* ---------- 包厢后廊：三层都有净宽 1.7m 的墙外走道 ---------- */
   const corrMidZ = HOUSE.BOX_Z0 + (HOUSE.BOX_COUNT - 1) * HOUSE.BOX_STEP / 2;
-  const corrLen = HOUSE.BOX_COUNT * HOUSE.BOX_STEP + 0.8;
+  // 走道地面前后各多铺 0.1m：前端接上转角，避免与弧廊地板留缝
+  const corrLen = HOUSE.BOX_COUNT * HOUSE.BOX_STEP + 1.0;
   for (let tier = 0; tier < 3; tier++) {
     const y = HOUSE.TIER_Y[tier];
     for (const sign of [-1, 1]) {
@@ -406,8 +415,22 @@ export function buildHorseshoe({
 
   /* ---------- 二楼环廊：尾端平台 + 两侧弧廊，再接直段挑台 ---------- */
   const PROM_TOP = HOUSE.LEVEL + 0.002;
-  wood.add(7.4, 0.28, 1.7, 0, PROM_TOP - 0.14, -31.42);
-  gold.add(7.4, 0.026, 0.05, 0, PROM_TOP, -30.62);
+  /* 尾端平台：原是一块 x±3.7 的整板，但弧墙朝厅面是 r=4.6 的圆弧，
+     在 z=-31.4 只到 x±2.73 —— 每侧约 0.95m 楼板埋在弧墙空腔里。
+     stops.js 的 apse 可行走区早已按弧收口，几何没跟着改，于是留下一片
+     「看着是地面、其实站在墙背后」的假地面。这里按 12 条 z 带逐条收口，
+     门洞喉道保留 >= 2.0m 半宽，保证与上层走廊楼板接得上。 */
+  const PLAT_Z0 = -32.27, PLAT_Z1 = -30.53, PLAT_STRIPS = 12;
+  for (let i = 0; i < PLAT_STRIPS; i++) {
+    const z0 = PLAT_Z0 + (PLAT_Z1 - PLAT_Z0) * i / PLAT_STRIPS;
+    const z1 = PLAT_Z0 + (PLAT_Z1 - PLAT_Z0) * (i + 1) / PLAT_STRIPS;
+    const zm = (z0 + z1) / 2;
+    const dz = zm - HOUSE.TAIL;
+    const half = Math.max(2.0, Math.min(3.7,
+      Math.sqrt(Math.max(0, HOUSE.APSE_R * HOUSE.APSE_R - dz * dz)) + 0.08));
+    wood.add(half * 2, 0.28, z1 - z0 + 0.02, 0, PROM_TOP - 0.14, zm);
+  }
+  gold.add(4.0, 0.026, 0.05, 0, PROM_TOP, -30.62);
 
   const innerR = 2.85;
   const outerR = HOUSE.APSE_R;
@@ -425,26 +448,29 @@ export function buildHorseshoe({
       const zr = HOUSE.TAIL + innerR * Math.cos(am);
       gold.add(arcLen + 0.04, 0.026, 0.05, xr, PROM_TOP, zr, am);
     }
-    // 弧廊内缘栏杆
+    // 弧廊内缘栏杆：立柱抬到 GUARD，扶手拆成 6 段短弦贴合弧线
+    // （原来一整根直弦横切 0.75rad，中段离立柱内缩约 0.2m，读不到扶手）
     for (let i = 0; i < 11; i++) {
       const a = dir * (0.2 + i * 0.075);
       const x = innerR * Math.sin(a);
       const z = HOUSE.TAIL + innerR * Math.cos(a);
-      gold.add(0.032, 0.9, 0.032, x, PROM_TOP + 0.45, z, a);
+      gold.add(0.032, GUARD, 0.032, x, PROM_TOP + GUARD / 2, z, a);
     }
-    const t0 = dir * 0.2;
-    const t1 = dir * 0.95;
-    const am = (t0 + t1) / 2;
-    const xr = innerR * Math.sin(am);
-    const zr = HOUSE.TAIL + innerR * Math.cos(am);
-    gold.add(Math.abs(t1 - t0) * innerR, 0.06, 0.06, xr, PROM_TOP + 0.92, zr, am);
+    for (let i = 0; i < 6; i++) {
+      const a0 = dir * (0.2 + i * 0.75 / 6);
+      const a1 = dir * (0.2 + (i + 1) * 0.75 / 6);
+      const am2 = (a0 + a1) / 2;
+      const xh = innerR * Math.sin(am2);
+      const zh = HOUSE.TAIL + innerR * Math.cos(am2);
+      gold.add(Math.abs(a1 - a0) * innerR + 0.05, 0.06, 0.06, xh, PROM_TOP + GUARD, zh, am2);
+    }
   }
 
   // 尾端平台内缘栏杆：中央段收住，两侧各留一段缺口接弧廊
   for (let x = -2.4; x <= 2.41; x += 0.34) {
-    gold.add(0.032, 0.9, 0.032, x, PROM_TOP + 0.45, -32.28);
+    gold.add(0.032, GUARD, 0.032, x, PROM_TOP + GUARD / 2, -32.28);
   }
-  gold.add(4.9, 0.06, 0.06, 0, PROM_TOP + 0.92, -32.28);
+  gold.add(4.9, 0.06, 0.06, 0, PROM_TOP + GUARD, -32.28);
   for (let x = -3.3; x <= 3.31; x += 0.8) {
     wood.add(0.24, 0.16, 0.4, x, PROM_TOP - 0.16, -32.36);
   }
@@ -454,8 +480,10 @@ export function buildHorseshoe({
      外侧再接包厢后廊，形成一条完整可走的二层环线。 */
   const AP_R0 = 5.04;
   const AP_R1 = 6.6;
-  const apStart = 0.96;
-  const apSeg = 5;
+  // 可行走区 outer-r/l 从 |a|=0.94 起，几何原来从 0.96 才铺，
+  // 于是 a∈[0.94,0.96] 有一条无楼板的窄缝；退到 0.90 留足搭接。
+  const apStart = 0.90;
+  const apSeg = 6;
   for (const dir of [-1, 1]) {
     for (let i = 0; i < apSeg; i++) {
       const a0 = dir * (apStart + i * (Math.PI / 2 - apStart) / apSeg);
@@ -466,19 +494,38 @@ export function buildHorseshoe({
       const x = rMid * Math.sin(am);
       const z = HOUSE.TAIL + rMid * Math.cos(am);
       wood.add(arcLen, 0.12, AP_R1 - AP_R0, x, PROM_TOP - 0.06, z, am);
-      // 外缘扶手；最后一段与包厢后廊相接，留出入口
-      if (i < apSeg - 1) {
-        const xo = AP_R1 * Math.sin(am);
-        const zo = HOUSE.TAIL + AP_R1 * Math.cos(am);
-        gold.add(arcLen, 0.06, 0.06, xo, PROM_TOP + 0.92, zo, am);
-        goldDeep.add(arcLen, 0.05, 0.05, xo, PROM_TOP + 0.08, zo, am);
-      }
+      // 外缘扶手：弦长必须按 AP_R1 算。原来错用 rMid=5.82 却贴在 r=6.6 上，
+      // 每段短约 12%，加上 i<apSeg-1 省掉末段，实测 11 点里 4 点完全没有扶手。
+      const railLen = Math.abs(a1 - a0) * AP_R1 + 0.05;
+      const xo = AP_R1 * Math.sin(am);
+      const zo = HOUSE.TAIL + AP_R1 * Math.cos(am);
+      gold.add(railLen, 0.06, 0.06, xo, PROM_TOP + GUARD, zo, am);
+      goldDeep.add(railLen, 0.05, 0.05, xo, PROM_TOP + 0.08, zo, am);
     }
-    for (let i = 0; i < 8; i++) {
-      const a = dir * (apStart + i * (Math.PI / 2 - apStart) / 9);
+    for (let i = 0; i < 12; i++) {
+      const a = dir * (apStart + i * (Math.PI / 2 - apStart) / 11);
       const xo = AP_R1 * Math.sin(a);
       const zo = HOUSE.TAIL + AP_R1 * Math.cos(a);
-      gold.add(0.032, 0.9, 0.032, xo, PROM_TOP + 0.45, zo, a);
+      gold.add(0.032, GUARD, 0.032, xo, PROM_TOP + GUARD / 2, zo, a);
+    }
+  }
+
+  /* ---------- 侧拱门门槛：把内弧廊与外弧廊真正接起来 ----------
+     弧墙厚 0.42m（r 4.6..5.02），门洞在 y=4.03 是通的，但门洞里
+     原本一片楼板都没有。0.08m 栅格洪水填充因此把外弧廊与两侧包厢后廊
+     判成两个大孤岛。这里在侧门角度范围内铺一圈放射状门槛板；
+     板面比相邻楼板低 1.2cm，读作门槛，也避免与搭接处共面 z-fighting。 */
+  const TH_R0 = 4.55, TH_R1 = 5.08, TH_A0 = 0.90, TH_A1 = 1.16, TH_SEG = 5;
+  const TH_TOP = PROM_TOP - 0.012;
+  for (const dir of [-1, 1]) {
+    for (let i = 0; i < TH_SEG; i++) {
+      const a0 = dir * (TH_A0 + i * (TH_A1 - TH_A0) / TH_SEG);
+      const a1 = dir * (TH_A0 + (i + 1) * (TH_A1 - TH_A0) / TH_SEG);
+      const am = (a0 + a1) / 2;
+      const rM = (TH_R0 + TH_R1) / 2;
+      const chord = Math.abs(a1 - a0) * rM + 0.06;
+      wood.add(chord, 0.12, TH_R1 - TH_R0,
+        rM * Math.sin(am), TH_TOP - 0.06, HOUSE.TAIL + rM * Math.cos(am), am);
     }
   }
 

@@ -13,6 +13,7 @@ import {
   NAV,
   ZONES,
   ZONE_BY_ID,
+  SPACES,
   zoneAt,
   MAIN_LINE,
   routeBetween,
@@ -26,6 +27,7 @@ import {
 import { createHUD } from './ui/hud.js';
 import { createOverlay } from './ui/overlay.js';
 import { createOrb } from './ui/orb.js';
+import { createPreviewBar } from './ui/previewBar.js';
 import { createAudio } from './core/audio.js';
 import { createShow } from './core/show.js';
 import { tween, easeInOutSine, easeOutCubic } from './core/anim.js';
@@ -159,12 +161,7 @@ const hud = createHUD({
   onEnter: () => enterFoyer(),
   onNext: (id) => go(id),
   onEnterStop: (id) => overlay?.open(id),
-  onDirectory: () => overlay?.openDirectory(),
-  onProgramme: () => {
-    const id = currentSpaceId();
-    if (STOP_BY_ID[id]) overlay?.open(id);
-    else overlay?.openDirectory();
-  }
+  onDirectory: () => overlay?.openDirectory()
 });
 
 tour = new Tour({
@@ -175,9 +172,9 @@ tour = new Tour({
     hud.setPhase(phase);
     if (phase === 'cinematic') {
       canvas.style.cursor = 'default';
-      hud.setNext(null, false);
+      hud.setExits(null, false);
       hud.setEnterPrompt(null, false);
-      nextVisible = false;
+      exitsVisible = false;
       enterVisible = false;
     } else if (phase === 'explore') {
       canvas.style.cursor = 'grab';
@@ -310,6 +307,9 @@ window.addEventListener('resize', applyViewport);
 window.addEventListener('orientationchange', () => setTimeout(applyViewport, 260));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', applyViewport);
 
+/* ---------- 预览标识：仅预览构建创建，正式构建这里什么都不做 ---------- */
+createPreviewBar();
+
 /* ---------- 内容浮层：节目单 / 档案卡 ---------- */
 overlay = createOverlay({
   onTravel: (id) => go(id),
@@ -318,6 +318,8 @@ overlay = createOverlay({
     if (open) {
       rig.setEnabled(false);
       hud.setEnterPrompt(null, false);
+      hud.setExits(null, false);
+      exitsVisible = false;
       enterVisible = false;
       canvas.style.cursor = 'default';
     } else if (tour.started && !tour.playing) {
@@ -337,6 +339,8 @@ orb = createOrb({
     if (open) {
       rig.setEnabled(false);
       hud.setEnterPrompt(null, false);
+      hud.setExits(null, false);
+      exitsVisible = false;
       enterVisible = false;
       canvas.style.cursor = 'default';
     } else if (tour.started && !tour.playing && !overlay.isOpen()) {
@@ -410,12 +414,33 @@ canvas.addEventListener('pointerup', (e) => {
   if (hitBoard(e)) overlay.openDirectory();
 });
 
-/* ---------- 沿主动线推进：分区的可走范围与下一站提示 ---------- */
+/* ---------- 沿主动线推进：分区的可走范围与方位出口 ---------- */
 let lastZoneId = '';
 let stillTime = 0;
-let nextVisible = false;
+let exitStillTime = 0;
+let exitsVisible = false;
 let enterVisible = false;
 let enterStopId = null;
+
+// 其余可达空间相对当前站位与镜头朝向的方位，分桶与滞回交给 HUD
+function exitState() {
+  const yaw = currentYaw();
+  const from = currentSpaceId();
+  const px = rig.position.x;
+  const pz = rig.position.z;
+  const items = [];
+  for (const s of SPACES) {
+    if (s.id === from) continue;
+    const pose = (STOP_BY_ID[s.nav] || NAV[s.nav])?.pose?.position;
+    if (!pose) continue;
+    const dx = pose[0] - px;
+    const dz = pose[2] - pz;
+    if (Math.hypot(dx, dz) < 0.5) continue;
+    // 与 currentYaw() 同一套约定：0 朝 -z，+90° 朝 -x
+    items.push({ id: s.nav, label: s.label, bearing: Math.atan2(-dx, -dz) });
+  }
+  return { yaw, items };
+}
 
 // 五个空间各自的浮层入口（内容映射由 STOPS / STOP_COLLECTIONS 决定）
 const ENTERABLE = {
@@ -443,11 +468,19 @@ function updateExploration(dt) {
     stillTime = 0;
   }
 
-  const next = zone.next
-    ? { ...NAV[zone.next], kicker: zone.nextKicker || '下一站' }
-    : null;
   const still = rig.velocity.length() < 0.08 && !rig.dragging;
   stillTime = still ? stillTime + dt : 0;
+
+  // 方位入口：站定后浮现。环视时人没动，仍保留按钮，按朝向换方位
+  const exitStill = rig.velocity.length() < 0.08;
+  exitStillTime = exitStill ? exitStillTime + dt : 0;
+  if (exitStillTime > 1.1) {
+    hud.setExits(exitState(), true);
+    exitsVisible = true;
+  } else if (exitsVisible) {
+    exitsVisible = false;
+    hud.setExits(null, false);
+  }
 
   // 到站提示：五个空间各有内容入口，复用同一套浮层
   const enterable = ENTERABLE[space] || null;
@@ -462,12 +495,6 @@ function updateExploration(dt) {
     enterVisible = false;
     enterStopId = null;
     hud.setEnterPrompt(null, false);
-  }
-
-  const shouldShow = Boolean(next) && stillTime > 1.1;
-  if (shouldShow !== nextVisible) {
-    nextVisible = shouldShow;
-    hud.setNext(next, shouldShow);
   }
 }
 
@@ -488,8 +515,29 @@ function currentPlaceId() {
 
 /* ---------- 启动与渲染循环 ---------- */
 let readyShown = false;
-const startedAt = performance.now();
+let startedAt = performance.now();
 let lastTime = startedAt;
+
+/* ---------- 切后台停帧 ----------
+   页面隐藏时浏览器会掐掉 rAF，但部分移动浏览器在切走的那一两帧里还会照常
+   调度，音频上下文更是完全照跑。这里显式停：整帧直接返回，音频挂起。
+   回来时把演出时钟整体后移同样的时长，否则 time 会一次跳过几十秒，
+   体积光、粒子相位、演出时间轴都会闪一下。 */
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = performance.now();
+    audio.suspend();
+    return;
+  }
+  if (hiddenAt) {
+    const gap = performance.now() - hiddenAt;
+    startedAt += gap;
+    hiddenAt = 0;
+  }
+  lastTime = 0;          // 下一帧重新起算 dt，不把后台时长当一帧
+  audio.resume();
+});
 
 engine.renderer.compile(engine.scene, camera);
 
@@ -504,6 +552,13 @@ function idleCamera(time) {
 
 function frame(now) {
   requestAnimationFrame(frame);
+  // 后台：不更新、不渲染、不提交绘制。rAF 名义上会被浏览器停掉，
+  // 但停不干净的那一两帧不必再花 10ms 去画一张没人看的画面。
+  if (document.hidden) {
+    lastTime = now;
+    return;
+  }
+  if (!lastTime) lastTime = now;
   const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
   lastTime = now;
   const time = (now - startedAt) / 1000;
@@ -530,7 +585,9 @@ function frame(now) {
     x: camera.position.x,
     z: camera.position.z,
     yaw: currentYaw(),
-    time
+    time,
+    // 转场路径的实时采样点与水平切线：球内/鸟瞰台视点据此严格同步
+    follow: tour.follow
   });
 
   // 鸟瞰台展开时主场景暂停渲染，两套渲染器不会同时跑
@@ -564,5 +621,7 @@ window.__proscenium = {
   loadStopEntries,
   go,
   setShellScheme: (id) => world.setShellScheme(id),
-  getShellScheme: () => world.getShellScheme()
+  getShellScheme: () => world.getShellScheme(),
+  // 验收用：主循环时钟。切后台回来时 time 不应跳，dt 不应变成后台时长
+  getClock: () => ({ time: (performance.now() - startedAt) / 1000, lastDt: lastTime ? (performance.now() - lastTime) / 1000 : null, hidden: document.hidden })
 };

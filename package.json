@@ -10,7 +10,8 @@
     "preview": "vite preview --host",
     "preview:file": "vite build && node scripts/inline-preview.mjs",
     "new": "node scripts/new-content.mjs",
-    "links": "node scripts/new-content.mjs --links"
+    "links": "node scripts/new-content.mjs --links",
+    "preview:lan": "vite preview --host 0.0.0.0 --port 4173 --strictPort --base /rainsabove/"
   },
   "dependencies": {
     "three": "^0.170.0"

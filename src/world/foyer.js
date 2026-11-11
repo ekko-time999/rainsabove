@@ -194,10 +194,16 @@ export function buildFoyer(scene, mats, quality) {
   wallShape.lineTo(-7.5, 10.8);
   wallShape.closePath();
 
+  /* 墙洞是本层入廊的第一道卡口：原来是半径 2.2 的半圆，冠只有 6.60，
+     比走廊里的木门套（6.70）还低 0.10——上一轮 Z12 量在门套上，
+     把这道墙洞漏掉了。这里改成竖椭圆：半跨仍是 2.2，竖向半径 2.55，
+     冠抬到 6.95（净高 2.914），与门套 2.95 一起过 2.85 的判据。
+     起拱线仍留在 4.4，不做「高跷拱」，门厅的构图不变。 */
+  const ARCH_RY = 2.55;
   const hole = new THREE.Path();
   hole.moveTo(-2.2, 0);
   hole.lineTo(-2.2, 4.4);
-  hole.absarc(0, 4.4, 2.2, Math.PI, 0, true);
+  hole.absellipse(0, 4.4, 2.2, ARCH_RY, Math.PI, 0, true);
   hole.lineTo(2.2, 0);
   hole.closePath();
   wallShape.holes.push(hole);
@@ -213,17 +219,22 @@ export function buildFoyer(scene, mats, quality) {
   group.add(farWall);
 
   /* ---------- 台口拱饰 ---------- */
+  // 三道拱饰随墙洞一起竖向拉开（2.55/2.2 = 1.159），起拱线不变
+  const ARCH_SY = ARCH_RY / 2.2;
   const archA = new THREE.Mesh(archBandGeometry(2.2, 2.6, 0.2), mats.goldDeep);
   archA.position.set(0, 4.4, -16.62);
+  archA.scale.y = ARCH_SY;
   group.add(archA);
 
   const archB = new THREE.Mesh(archBandGeometry(2.6, 2.92, 0.28), mats.marble);
   archB.position.set(0, 4.4, -16.7);
+  archB.scale.y = ARCH_SY;
   archB.receiveShadow = true;
   group.add(archB);
 
   const archC = new THREE.Mesh(archBandGeometry(2.14, 2.2, 0.16), mats.brass);
   archC.position.set(0, 4.4, -16.5);
+  archC.scale.y = ARCH_SY;
   group.add(archC);
 
   for (const sign of [-1, 1]) {
@@ -244,18 +255,13 @@ export function buildFoyer(scene, mats, quality) {
   crestRing.position.set(0, 8.75, -16.46);
   group.add(crestRing);
 
-  // 拱内半掩的丝绒帘与短帷幔
+  // 丝绒帘挂在洞口两侧的墙面上，不再探入洞口：门洞净宽保持 ±2.2m 全通
   for (const sign of [-1, 1]) {
-    const curtain = new THREE.Mesh(curtainGeometry(1.05, 6.5, 4, 0.09), mats.velvet);
-    curtain.position.set(sign * 1.82, 3.25, -17.05);
+    const curtain = new THREE.Mesh(curtainGeometry(0.8, 6.2, 4, 0.09), mats.velvet);
+    curtain.position.set(sign * 2.65, 3.1, -16.44);
     curtain.castShadow = true;
     group.add(curtain);
   }
-  const valance = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.62, 0.06), mats.velvet);
-  valance.position.set(0, 6.22, -17.02);
-  group.add(valance);
-  gold.add(4.35, 0.06, 0.1, 0, 5.9, -16.98);
-  gold.add(4.35, 0.08, 0.1, 0, 6.54, -16.98);
 
   /* ---------- 门厅墙面：护墙板 / 饰板 / 壁柱 ---------- */
   const bayEdges = [-0.2, -1.9, -5.6, -9.3, -13.0, -16.4];

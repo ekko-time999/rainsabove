@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BoxBatch, addGlowSprite, mergeStatic } from './utils.js';
 import { createSconce, instanceSconceShades } from './foyer.js';
 import { PALETTE } from './materials.js';
+import { HOUSE } from './plan.js';
 
 const START = -16.5;
 const END = -30.6;
@@ -12,8 +13,18 @@ const WALL_END = -27.2;
 const W_LEN = START - WALL_END;
 const W_MID = (START + WALL_END) / 2;
 const HALF = 2.2;
-const CEIL = 6.9;         // 二楼走廊净高 6.9-4.03 ≈ 2.87m
-const LOWER_CEIL = 3.72;  // 一楼走廊天花：压在上层楼板下皮
+/* 二楼走廊净高：4.03→7.58 = 3.54m。
+   这一层原来的平顶 6.90 只给 2.86m，拱肋梁底 6.695 更只有 2.66m，
+   是「紧促感」的主因。抬顶不是随便抬——拱肋的高宽比（该点净高 / 该点净宽）
+   上一轮实测 0.76 偏扁，本轮按 >=0.90 反算：
+     内缘半跨 a=2.115，矢高 b 时该处净宽 = 2a·sqrt(1-(1.5/b)²)
+     令 b / 净宽 = 0.90  =>  b = 3.42~3.45
+   于是拱肋梁底定 7.48（净高 3.44、该处净宽 3.81、比值 0.904），
+   平顶再高 0.10 压住肋顶，读作「肋嵌进筒拱」。 */
+const CEIL = HOUSE.UPPER_CEIL;
+const RIB_SOFFIT = 7.48;   // 拱肋梁底（椭圆拱顶下皮）
+const RIB_Y_SCALE = (RIB_SOFFIT - 4.03) / (HALF - 0.085);  // ≈1.631
+const LOWER_CEIL = 3.88;  // 一楼走廊天花：贴住上层楼板下皮（板厚 0.14，板底 3.89）
 const WALL_TOP = 4.03;    // 二楼楼面标高，拱肋从这里起拱
 
 // 门厅尽头延伸出的正式通道：拱肋、壁龛、壁灯、地毯，尽头透出观众席的光
@@ -65,16 +76,14 @@ export function buildCorridor(scene, mats) {
         seg.receiveShadow = true;
         group.add(seg);
       }
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL - 6.2, SCR_DOOR_HALF * 2), mats.plaster);
-      head.position.set(sign * (HALF + 0.15), (6.2 + CEIL) / 2, SCR_DOOR_Z);
-      head.receiveShadow = true;
-      group.add(head);
+      // 门洞两侧的墙照旧到顶；洞顶不再加梁——洞口直接顶到机房底板下皮
+      // SCR_HEAD=6.995（与 spaces.js 同一标高），底板本身把洞口封住。
 
-      wood.add(0.16, 2.22, 0.14, sign * HALF, 5.14, SCR_DOOR_Z - SCR_DOOR_HALF - 0.05);
-      wood.add(0.16, 2.22, 0.14, sign * HALF, 5.14, SCR_DOOR_Z + SCR_DOOR_HALF + 0.05);
-      wood.add(0.16, 0.18, 1.56, sign * HALF, 6.24, SCR_DOOR_Z);
-      goldDeep.add(0.06, 2.1, 0.06, sign * (HALF - 0.06), 5.1, SCR_DOOR_Z - SCR_DOOR_HALF);
-      goldDeep.add(0.06, 2.1, 0.06, sign * (HALF - 0.06), 5.1, SCR_DOOR_Z + SCR_DOOR_HALF);
+      wood.add(0.16, 2.95, 0.14, sign * HALF, 5.505, SCR_DOOR_Z - SCR_DOOR_HALF - 0.05);
+      wood.add(0.16, 2.95, 0.14, sign * HALF, 5.505, SCR_DOOR_Z + SCR_DOOR_HALF + 0.05);
+      wood.add(0.16, 0.18, 1.56, sign * HALF, 6.90, SCR_DOOR_Z);
+      goldDeep.add(0.06, 2.85, 0.06, sign * (HALF - 0.06), 5.46, SCR_DOOR_Z - SCR_DOOR_HALF);
+      goldDeep.add(0.06, 2.85, 0.06, sign * (HALF - 0.06), 5.46, SCR_DOOR_Z + SCR_DOOR_HALF);
     } else {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(0.3, CEIL, W_LEN), mats.plaster);
       wall.position.set(sign * (HALF + 0.15), CEIL / 2, W_MID);
@@ -99,8 +108,9 @@ export function buildCorridor(scene, mats) {
     goldDeep.add(0.26, 0.14, W_LEN, sign * (HALF - 0.05), LOWER_CEIL - 0.07, W_MID);
     gold.add(0.30, 0.045, W_LEN, sign * (HALF - 0.04), LOWER_CEIL - 0.15, W_MID);
   }
-  // 横向次梁：与上层拱肋同一节奏，让平顶不至于空成一块板
-  for (const z of [-17.2, -19.6, -22.0, -24.4, -26.8]) {
+  // 横向次梁：与上层拱肋同一节奏，让平顶不至于空成一块板。
+  // 第一道梁原在 z=-17.2，正落在门厅拱洞的墙体厚度里、悬在洞口正中，已删除。
+  for (const z of [-19.6, -22.0, -24.4, -26.8]) {
     gold.add(HALF * 2, 0.14, 0.2, 0, LOWER_CEIL - 0.07, z);
     goldDeep.add(HALF * 2, 0.05, 0.26, 0, LOWER_CEIL - 0.15, z);
   }
@@ -113,14 +123,17 @@ export function buildCorridor(scene, mats) {
   ceiling.position.set(0, CEIL, W_MID);
   group.add(ceiling);
 
-  // 半圆拱肋：把通道读成筒形拱
+  // 半圆拱肋：把通道读成筒形拱。竖向拉高到 RIB_Y_SCALE（原 1.26），
+  // 拱顶下皮落到 7.48m。肋顶会嵌进平顶 0.10m 以上（不可见），
+  // 从下面看是肋从筒拱里长出来，而不是一根挂在半空的梁。
   const ribGeo = new THREE.TorusGeometry(HALF, 0.085, 6, 30, Math.PI);
   const ribZ = [-17.2, -19.6, -22.0, -24.4, -26.8];
   for (const z of ribZ) {
     const rib = new THREE.Mesh(ribGeo, mats.goldDeep);
     rib.position.set(0, WALL_TOP, z);
+    rib.scale.set(1, RIB_Y_SCALE, 1);
     group.add(rib);
-    gold.add(0.12, 0.1, 0.16, 0, WALL_TOP + HALF, z);
+    gold.add(0.12, 0.1, 0.16, 0, RIB_SOFFIT + 0.05, z);
   }
 
   /* ---------- 两侧拱形壁龛 ---------- */
