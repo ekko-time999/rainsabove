@@ -522,139 +522,6 @@ body[data-phase="explore"] .hud {
     display: none;
   }
 }
-.rail {
-  position: absolute;
-  right: clamp(20px, 3vw, 42px);
-  bottom: clamp(24px, 4vh, 42px);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 13px;
-}
-.rail-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-display);
-  font-size: 9px;
-  letter-spacing: 0.26em;
-  color: #e9dfcd4d;
-  transition: color 0.6s var(--ease);
-}
-.rail-item em {
-  font-style: normal;
-  opacity: 0;
-  transform: translate(4px);
-  transition:
-    opacity 0.6s var(--ease),
-    transform 0.6s var(--ease);
-}
-.rail-item i {
-  order: 2;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #cdae7659;
-  box-shadow: 0 0 #cdae7600;
-  transition:
-    background 0.6s var(--ease),
-    box-shadow 0.6s var(--ease),
-    transform 0.6s var(--ease);
-}
-.rail-item.is-active {
-  color: var(--gold);
-}
-.rail-item.is-active em {
-  opacity: 1;
-  transform: none;
-}
-.rail-item.is-active i {
-  background: var(--gold-bright);
-  transform: scale(1.35);
-  box-shadow: 0 0 12px 2px #cdae764d;
-}
-.rail-item.is-upcoming {
-  color: #e9dfcd80;
-}
-.rail-item.is-upcoming em {
-  opacity: 0.55;
-  transform: none;
-}
-.rail-item.is-upcoming i {
-  background: #cdae7699;
-}
-.rail-item:hover {
-  color: var(--paper-dim);
-}
-.rail-item:hover em {
-  opacity: 0.7;
-  transform: none;
-}
-/* 方位入口：按相机水平朝向把可达场景分到前/左/右/后，同一方位并列多个 */
-.dir-nav {
-  position: absolute;
-  left: 50%;
-  bottom: clamp(104px, 15vh, 158px);
-  transform: translate(-50%) translateY(10px);
-  width: max-content;
-  max-width: min(700px, 88vw);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 0.7s var(--ease),
-    transform 0.7s var(--ease);
-}
-.dir-nav.is-on {
-  opacity: 1;
-  transform: translate(-50%) translateY(0);
-  pointer-events: auto;
-}
-.dir-btn {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid rgba(205, 174, 118, 0.24);
-  background: #09060580;
-  color: var(--paper);
-  border-radius: 1px;
-  font: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  transition:
-    border-color 0.4s var(--ease),
-    background 0.4s var(--ease),
-    transform 0.2s var(--ease);
-}
-.dir-btn:hover {
-  border-color: #e6c98bb3;
-  background: #cdae761a;
-}
-.dir-btn:active {
-  transform: scale(0.97);
-}
-.dir-btn:focus-visible {
-  outline: 1px solid var(--gold);
-  outline-offset: 4px;
-}
-.dir-where {
-  font-family: var(--font-display);
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  color: var(--gold-dim);
-}
-.dir-name {
-  font-family: var(--font-display);
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  color: var(--gold-bright);
-}
 .caption {
   position: absolute;
   left: 50%;
@@ -696,7 +563,6 @@ body[data-phase="explore"] .dpad {
   .dpad {
     display: grid;
   }
-  .rail,
   .stop-card {
     display: none;
   }
@@ -706,20 +572,6 @@ body[data-phase="explore"] .dpad {
   }
   .caption {
     bottom: clamp(178px, 24vh, 210px);
-  }
-  .dir-nav {
-    bottom: clamp(224px, 27vh, 254px);
-    max-width: 92vw;
-  }
-  .dir-btn {
-    padding: 6px 10px;
-    gap: 5px;
-  }
-  .dir-where {
-    font-size: 8.5px;
-  }
-  .dir-name {
-    font-size: 11px;
   }
 }
 .pad {
@@ -1629,7 +1481,6 @@ body[data-orb="open"] .brand,
 body[data-orb="open"] .act,
 body[data-orb="open"] .dpad,
 body[data-orb="open"] .caption,
-body[data-orb="open"] .dir-nav,
 body[data-orb="open"] .enter-stop {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -1965,25 +1816,6 @@ body[data-orb="open"] .stage-tools {
   }
   .pad-right {
     grid-area: 2 / 3;
-  }
-  .dir-nav {
-    left: 50%;
-    right: auto;
-    bottom: calc(var(--dock-b) + 84px);
-    max-width: 92vw;
-    gap: 5px;
-  }
-  .dir-btn {
-    padding: 5px 8px;
-    gap: 4px;
-  }
-  .dir-where {
-    font-size: 8px;
-    letter-spacing: 0.14em;
-  }
-  .dir-name {
-    font-size: 10.5px;
-    letter-spacing: 0.16em;
   }
   .enter-stop {
     left: 50%;

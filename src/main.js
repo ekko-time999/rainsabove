@@ -13,7 +13,6 @@ import {
   NAV,
   ZONES,
   ZONE_BY_ID,
-  SPACES,
   zoneAt,
   MAIN_LINE,
   routeBetween,
@@ -159,7 +158,6 @@ rig.onLookEnd = () => {
 
 const hud = createHUD({
   onEnter: () => enterFoyer(),
-  onNext: (id) => go(id),
   onEnterStop: (id) => overlay?.open(id),
   onDirectory: () => overlay?.openDirectory()
 });
@@ -172,9 +170,7 @@ tour = new Tour({
     hud.setPhase(phase);
     if (phase === 'cinematic') {
       canvas.style.cursor = 'default';
-      hud.setExits(null, false);
       hud.setEnterPrompt(null, false);
-      exitsVisible = false;
       enterVisible = false;
     } else if (phase === 'explore') {
       canvas.style.cursor = 'grab';
@@ -318,8 +314,6 @@ overlay = createOverlay({
     if (open) {
       rig.setEnabled(false);
       hud.setEnterPrompt(null, false);
-      hud.setExits(null, false);
-      exitsVisible = false;
       enterVisible = false;
       canvas.style.cursor = 'default';
     } else if (tour.started && !tour.playing) {
@@ -339,8 +333,6 @@ orb = createOrb({
     if (open) {
       rig.setEnabled(false);
       hud.setEnterPrompt(null, false);
-      hud.setExits(null, false);
-      exitsVisible = false;
       enterVisible = false;
       canvas.style.cursor = 'default';
     } else if (tour.started && !tour.playing && !overlay.isOpen()) {
@@ -414,33 +406,11 @@ canvas.addEventListener('pointerup', (e) => {
   if (hitBoard(e)) overlay.openDirectory();
 });
 
-/* ---------- 沿主动线推进：分区的可走范围与方位出口 ---------- */
+/* ---------- 沿主动线推进：分区的可走范围 ---------- */
 let lastZoneId = '';
 let stillTime = 0;
-let exitStillTime = 0;
-let exitsVisible = false;
 let enterVisible = false;
 let enterStopId = null;
-
-// 其余可达空间相对当前站位与镜头朝向的方位，分桶与滞回交给 HUD
-function exitState() {
-  const yaw = currentYaw();
-  const from = currentSpaceId();
-  const px = rig.position.x;
-  const pz = rig.position.z;
-  const items = [];
-  for (const s of SPACES) {
-    if (s.id === from) continue;
-    const pose = (STOP_BY_ID[s.nav] || NAV[s.nav])?.pose?.position;
-    if (!pose) continue;
-    const dx = pose[0] - px;
-    const dz = pose[2] - pz;
-    if (Math.hypot(dx, dz) < 0.5) continue;
-    // 与 currentYaw() 同一套约定：0 朝 -z，+90° 朝 -x
-    items.push({ id: s.nav, label: s.label, bearing: Math.atan2(-dx, -dz) });
-  }
-  return { yaw, items };
-}
 
 // 五个空间各自的浮层入口（内容映射由 STOPS / STOP_COLLECTIONS 决定）
 const ENTERABLE = {
@@ -470,17 +440,6 @@ function updateExploration(dt) {
 
   const still = rig.velocity.length() < 0.08 && !rig.dragging;
   stillTime = still ? stillTime + dt : 0;
-
-  // 方位入口：站定后浮现。环视时人没动，仍保留按钮，按朝向换方位
-  const exitStill = rig.velocity.length() < 0.08;
-  exitStillTime = exitStill ? exitStillTime + dt : 0;
-  if (exitStillTime > 1.1) {
-    hud.setExits(exitState(), true);
-    exitsVisible = true;
-  } else if (exitsVisible) {
-    exitsVisible = false;
-    hud.setExits(null, false);
-  }
 
   // 到站提示：五个空间各有内容入口，复用同一套浮层
   const enterable = ENTERABLE[space] || null;
